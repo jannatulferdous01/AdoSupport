@@ -1,6 +1,21 @@
 import type { Metadata } from "next";
+import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
 import Providers from "@/lib/Provider";
+
+// Inter for body text - clean and highly readable
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-sans",
+});
+
+// Outfit for headings - modern and friendly
+const outfit = Outfit({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-heading",
+});
 
 export const metadata: Metadata = {
   title: "Adolescents",
@@ -13,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
+      <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

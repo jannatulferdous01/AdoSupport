@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { UserPlusIcon } from "lucide-react";
+import { UserIcon, UserPlusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CustomForm from "@/components/form/CustomForm";
 import FormInput from "@/components/form/FormInput";
@@ -12,10 +12,12 @@ import FormSelect from "@/components/form/FormSelect";
 import CustomCalendar from "@/components/form/CustomCalendar";
 import { FieldValues } from "react-hook-form";
 import toast from "react-hot-toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // Registration validation schema
 const registerFormSchema = z
   .object({
+    userType: z.enum(["adolescent", "parent"]),
     username: z
       .string()
       .min(3, "Username must be at least 3 characters")
@@ -41,6 +43,9 @@ const registerFormSchema = z
 
 export default function RegisterForm() {
   const [isLoading, setIsLoading] = useState(false);
+  const [userType, setUserType] = useState<"adolescent" | "parent">(
+    "adolescent"
+  );
 
   const handleRegister = async (data: FieldValues) => {
     const toastId = toast.loading("Creating account...");
@@ -64,6 +69,35 @@ export default function RegisterForm() {
         <p className="text-sm text-muted-foreground">
           Fill in your details to get started with AdoSupport
         </p>
+      </div>
+
+      {/* User type selection */}
+      <div className="mb-6">
+        <h2 className="text-sm font-medium text-gray-700 mb-2">I am a:</h2>
+        <Tabs
+          defaultValue="adolescent"
+          onValueChange={(value) =>
+            setUserType(value as "adolescent" | "parent")
+          }
+          className="w-full"
+        >
+          <TabsList className="grid grid-cols-2 w-full bg-muted/30">
+            <TabsTrigger
+              value="adolescent"
+              className="flex items-center justify-center data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              <UserIcon className="mr-2 h-4 w-4" />
+              Adolescent
+            </TabsTrigger>
+            <TabsTrigger
+              value="parent"
+              className="flex items-center justify-center data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              <UsersIcon className="mr-2 h-4 w-4" />
+              Parent
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <CustomForm

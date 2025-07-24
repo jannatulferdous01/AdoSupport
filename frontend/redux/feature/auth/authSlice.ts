@@ -4,7 +4,7 @@ type TAuthSliceState = {
   id: string;
   name: string;
   email: string;
-  role: "";
+  role: "" | "adolescent" | "parent" | "admin";
   status: "";
   token: string;
 };

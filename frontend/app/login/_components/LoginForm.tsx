@@ -11,6 +11,10 @@ import FormInput from "@/components/form/FormInput";
 import { Separator } from "@/components/ui/separator";
 import { FieldValues } from "react-hook-form";
 import toast from "react-hot-toast";
+import { useAppDispatch } from "@/redux/hook";
+import { setAuth } from "@/redux/feature/auth/authSlice";
+import { useRouter } from "next/navigation";
+import { loginUser } from "@/services/actions/loginUser";
 
 // Login validation schema
 const loginFormSchema = z.object({
@@ -27,14 +31,41 @@ const loginFormSchema = z.object({
 
 export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
+  const dispatch = useAppDispatch();
+  const router = useRouter();
 
   const handleLogin = async (data: FieldValues) => {
     const toastId = toast.loading("Logging in...");
     setIsLoading(true);
     try {
-      // API call
+      const res = await loginUser({
+        email: data?.email,
+        password: data?.password,
+      });
+
+      if (!res.success) {
+        toast.error(res.message || "Login failed. Please try again.", {
+          id: toastId,
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      const userData = res?.data;
+
+      dispatch(
+        setAuth({
+          id: userData?.id,
+          email: userData?.email,
+          name: userData?.name,
+          role: userData?.role,
+          status: "active",
+          token: userData?.access,
+        })
+      );
 
       toast.success("Login successful", { id: toastId });
+      router.push(`/${userData?.role}/home`);
     } catch (error) {
       console.error("Login error:", error);
       toast.error("Login failed. Please try again.", { id: toastId });

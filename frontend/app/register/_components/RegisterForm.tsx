@@ -12,12 +12,13 @@ import FormSelect from "@/components/form/FormSelect";
 import CustomCalendar from "@/components/form/CustomCalendar";
 import { FieldValues } from "react-hook-form";
 import toast from "react-hot-toast";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { registerUser } from "@/services/actions/registerUser";
+import { useRouter } from "next/navigation";
 
 // Registration validation schema
 const registerFormSchema = z
   .object({
-    userType: z.enum(["adolescent", "parent"]),
     username: z
       .string()
       .min(3, "Username must be at least 3 characters")
@@ -31,10 +32,10 @@ const registerFormSchema = z
       .min(1, "Password is required")
       .min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
-    dateOfBirth: z.date({
+    dateOfBirth: z.string({
       required_error: "Date of birth is required",
     }),
-    sex: z.string().min(1, "Please select your gender"),
+    gender: z.string().min(1, "Please select your gender"),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -46,14 +47,33 @@ export default function RegisterForm() {
   const [userType, setUserType] = useState<"adolescent" | "parent">(
     "adolescent"
   );
+  const router = useRouter();
 
   const handleRegister = async (data: FieldValues) => {
     const toastId = toast.loading("Creating account...");
     setIsLoading(true);
     try {
-      // API call
+      const res = await registerUser({
+        username: data.username,
+        email: data.email,
+        password: data.password,
+        role: userType,
+        gender: data.gender,
+        dob: data.dateOfBirth,
+      });
+
+      console.log(res);
+
+      if (!res.success) {
+        toast.error(res.message || "Registration failed. Please try again.", {
+          id: toastId,
+        });
+        setIsLoading(false);
+        return;
+      }
 
       toast.success("Account created successfully", { id: toastId });
+      router.push("/login");
     } catch (error) {
       console.error("Login error:", error);
       toast.error("Registration failed. Please try again.", { id: toastId });
@@ -158,7 +178,7 @@ export default function RegisterForm() {
           </div>
           <div>
             <FormSelect
-              name="sex"
+              name="gender"
               label="Gender"
               placeholder="Select your gender"
               options={[

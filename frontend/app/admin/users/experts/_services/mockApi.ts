@@ -331,32 +331,64 @@ export const mockApi = {
   fetchExpertStats: async (): Promise<{
     total: number;
     active: number;
-    suspended: number;
+    inactive: number;
     newThisMonth: number;
-    avgRating: number;
+    averageRating: number;
     totalSessions: number;
     trends: {
       totalChange: number;
       activeChange: number;
-      suspendedChange: number;
+      inactiveChange: number;
       newChange: number;
     };
   }> => {
     // Simulate API delay
     await new Promise((resolve) => setTimeout(resolve, 800));
 
-    // Mock stats data
+    // Calculate actual stats from the data
+    const activeExperts = ALL_EXPERTS.filter(
+      (expert) => expert.status === "active"
+    ).length;
+    const suspendedExperts = ALL_EXPERTS.filter(
+      (expert) => expert.status === "suspended"
+    ).length;
+    const pendingExperts = ALL_EXPERTS.filter(
+      (expert) => expert.status === "pending"
+    ).length;
+    const inactiveExperts = suspendedExperts + pendingExperts; // Combining suspended + pending as inactive
+
+    // Calculate average rating
+    const ratingsSum = ALL_EXPERTS.reduce(
+      (sum, expert) => sum + expert.rating,
+      0
+    );
+    const averageRating = ratingsSum / ALL_EXPERTS.length;
+
+    // Calculate total sessions
+    const totalSessions = ALL_EXPERTS.reduce(
+      (sum, expert) => sum + expert.totalSessions,
+      0
+    );
+
+    // Calculate new experts this month
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const newThisMonth = ALL_EXPERTS.filter(
+      (expert) => expert.joinDate >= oneMonthAgo
+    ).length;
+
+    // Mock stats data with correct property names
     return {
-      total: 1474,
-      active: 950,
-      suspended: 89,
-      newThisMonth: 39,
-      avgRating: 4.6,
-      totalSessions: 25847,
+      total: ALL_EXPERTS.length,
+      active: activeExperts,
+      inactive: inactiveExperts,
+      newThisMonth: newThisMonth,
+      averageRating: Number(averageRating.toFixed(1)),
+      totalSessions: totalSessions,
       trends: {
         totalChange: 22,
         activeChange: 18,
-        suspendedChange: -12,
+        inactiveChange: -12,
         newChange: 31,
       },
     };

@@ -11,9 +11,12 @@ interface CheckoutFormProps {
 export default function CheckoutForm({ form }: CheckoutFormProps) {
   return (
     <>
-      <ContactInformation form={form} />
+      {/* <ContactInformation form={form} />
       <ShippingInformation form={form} />
-      <PaymentMethod form={form} />
+      <PaymentMethod form={form} /> */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold">Order Summary</h2>
+      </div>
     </>
   );
 }

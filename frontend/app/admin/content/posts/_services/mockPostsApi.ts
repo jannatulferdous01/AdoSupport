@@ -58,6 +58,7 @@ export interface PostFilters {
   type?: string;
   status?: string;
   author?: string;
+  authorRole?: string;
   dateRange?: string;
   tags?: string[];
   reported?: boolean;

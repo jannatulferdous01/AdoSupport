@@ -25,11 +25,16 @@ interface UserTypeCardsProps {
     experts: {
       total: number;
       active: number;
-      suspended: number;
+      inactive: number; // Changed from 'suspended' to 'inactive'
       newThisMonth: number;
-      avgRating: number;
+      averageRating: number; // Changed from 'avgRating' to 'averageRating'
       totalSessions: number;
-      trends: { totalChange: number; activeChange: number };
+      trends: {
+        totalChange: number;
+        activeChange: number;
+        inactiveChange: number;
+        newChange: number;
+      }; // Added missing properties
     };
   };
   loading: boolean;
@@ -265,7 +270,7 @@ export default function UserTypeCards({ stats, loading }: UserTypeCardsProps) {
                   Avg Rating
                 </span>
                 <p className="text-lg font-bold text-amber-600 mt-1">
-                  {stats.experts.avgRating.toFixed(1)} ★
+                  {stats.experts.averageRating.toFixed(1)} ★
                 </p>
               </div>
               <div className="text-center p-3 bg-white/70 rounded-lg backdrop-blur-sm">

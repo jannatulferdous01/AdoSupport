@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { ReportData } from "../../../_services/mockReportsApi";
+import { ReportData } from "../../_services/mockReportsApi";
 
 interface StatusBadgeProps {
   status: ReportData["status"];

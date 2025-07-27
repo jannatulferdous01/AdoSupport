@@ -119,7 +119,7 @@ export default function PostFilters({
         <div className="space-y-2">
           <Label>Author Role</Label>
           <Select
-            value={localFilters.authorRole || "all"}
+            value={localFilters?.authorRole || "all"}
             onValueChange={(value) =>
               updateFilter("authorRole", value === "all" ? undefined : value)
             }

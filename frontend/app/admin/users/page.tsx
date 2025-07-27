@@ -43,14 +43,14 @@ interface CombinedStats {
   experts: {
     total: number;
     active: number;
-    suspended: number;
+    inactive: number; // Changed from 'suspended' to 'inactive'
     newThisMonth: number;
-    avgRating: number;
+    averageRating: number; // Changed from 'avgRating' to 'averageRating'
     totalSessions: number;
     trends: {
       totalChange: number;
       activeChange: number;
-      suspendedChange: number;
+      inactiveChange: number; // Changed from 'suspendedChange' to 'inactiveChange'
       newChange: number;
     };
   };
@@ -113,21 +113,20 @@ export default function UserManagementPage() {
     experts: {
       total: 0,
       active: 0,
-      suspended: 0,
+      inactive: 0,
       newThisMonth: 0,
-      avgRating: 0,
+      averageRating: 0,
       totalSessions: 0,
       trends: {
         totalChange: 0,
         activeChange: 0,
-        suspendedChange: 0,
+        inactiveChange: 0,
         newChange: 0,
       },
     },
   });
   const [loading, setLoading] = useState(true);
 
-  // Mock data fetching (remove this when implementing RTK Query)
   useEffect(() => {
     const fetchCombinedStats = async () => {
       setLoading(true);
@@ -147,7 +146,6 @@ export default function UserManagementPage() {
           parentStats.newThisMonth +
           expertStats.newThisMonth;
 
-        // Calculate overall growth rate (weighted average)
         const totalTrendSum =
           adolescentStats.trends.totalChange * adolescentStats.total +
           parentStats.trends.totalChange * parentStats.total +

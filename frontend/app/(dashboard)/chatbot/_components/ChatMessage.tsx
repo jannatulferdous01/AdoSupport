@@ -1,17 +1,20 @@
 import { format } from "date-fns";
 import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import MarkdownMessage from "@/components/chat/MarkdownMessage";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  isStreaming?: boolean;
 }
 
 export default function ChatMessage({
   role,
   content,
   timestamp,
+  isStreaming = false,
 }: ChatMessageProps) {
   const isUser = role === "user";
 
@@ -33,7 +36,20 @@ export default function ChatMessage({
               : "bg-gray-100 text-gray-800 rounded-r-2xl rounded-bl-2xl rounded-tl-none"
           )}
         >
-          <div className="leading-relaxed whitespace-pre-wrap">{content}</div>
+          {isUser ? (
+            <div className="leading-relaxed whitespace-pre-wrap">{content}</div>
+          ) : (
+            <div>
+              <MarkdownMessage content={content} isStreaming={isStreaming} />
+              {isStreaming && content === "" && (
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div
           className={cn(

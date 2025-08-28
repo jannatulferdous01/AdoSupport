@@ -244,6 +244,8 @@ class AdolescentView(AuthMixin, APIView):
             return Response({"error": "An unexpected error occurred: " + str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # ==================================== chatbot =====================================
+
+
 class Chatbot(AuthMixin, APIView):
 
     def post(self, request):
@@ -350,7 +352,7 @@ class Chatbot(AuthMixin, APIView):
                     yield "data: " + json.dumps({
                         "type": "start",
                         "message": "Generating response...",
-                        "session_id": str(chat_session.id)
+                        "chat_id": str(chat_session.id)
                     }) + "\n\n"
 
                     for chunk in response_stream:
@@ -383,17 +385,18 @@ class Chatbot(AuthMixin, APIView):
                             role='assistant',
                             content=full_response.strip()
                         )
-                        
-                        # Update session timestamp
+
                         chat_session.save()
-                        
-                        # Manual title generation for new sessions (backup to signal)
+
                         if chat_session.title == "New Chat":
-                            first_user_msg = chat_session.messages.filter(role="user").order_by("timestamps").first()
+                            first_user_msg = chat_session.messages.filter(
+                                role="user").order_by("timestamps").first()
                             if first_user_msg:
                                 from .utils import generate_ai_session_title
-                                chat_session.title = generate_ai_session_title(first_user_msg.content)
-                                chat_session.save(update_fields=["title"])                    # End streaming
+                                chat_session.title = generate_ai_session_title(
+                                    first_user_msg.content)
+                                # End streaming
+                                chat_session.save(update_fields=["title"])
                     yield "data: " + json.dumps({
                         "type": "end",
                         "message": "Response completed",

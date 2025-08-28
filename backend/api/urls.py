@@ -15,6 +15,6 @@ urlpatterns = [
     path("change-password/", ChangePasswordView.as_view(), name="change-password"),
     path("chatbot/", Chatbot.as_view(), name="chatbot"),
     path("chat/sessions/", ChatSessionListView.as_view(), name="chat-session"),
-    path("chat/sessions/<uuid:chat_id>/messages/", ChatSessionMessageView.as_view(), name="chat-message"),
-    path("chat/sessions/<uuid:chat_id>/", ChatSessionDeleteView.as_view(), name="chat-delete"),
+    path("chat/sessions/<int:chat_id>/messages/", ChatSessionMessageView.as_view(), name="chat-message"),
+    path("chat/sessions/<int:chat_id>/", ChatSessionDeleteView.as_view(), name="chat-delete"),
 ]

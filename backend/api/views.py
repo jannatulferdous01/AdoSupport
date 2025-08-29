@@ -402,7 +402,7 @@ class Chatbot(AuthMixin, APIView):
                     yield "data: " + json.dumps({
                         "type": "end",
                         "message": "Response completed",
-                        "session_id": str(chat_session.id)
+                        "chat_id": chat_session.id
                     }) + "\n\n"
 
                 except Exception as e:

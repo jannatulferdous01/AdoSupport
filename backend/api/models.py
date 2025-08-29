@@ -4,7 +4,6 @@ from django.dispatch import receiver
 from django.db.models.signals import post_save
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
-import uuid
 from django.conf import settings
 from django.db import models
 from .utils import generate_ai_session_title
@@ -105,8 +104,7 @@ class ChatHistory(models.Model):
 
 
 class ChatSession(models.Model):
-    id = models.UUIDField(
-        primary_key=True, default=uuid.uuid4, editable=False)
+    # Remove UUID field - use default AutoField (integer)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="chat_session")
     title = models.CharField(max_length=255, default="New Chat")
@@ -126,7 +124,7 @@ class ChatSession(models.Model):
 class ChatMessage(models.Model):
     ROLE_CHOICE = (("user", "user"), ("assistant", "assistant"))
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=True)
+    # Remove UUID field - use default AutoField (integer)
     sessions = models.ForeignKey(
         ChatSession, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=10, choices=ROLE_CHOICE)

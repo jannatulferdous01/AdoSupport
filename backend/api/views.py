@@ -5,7 +5,7 @@ from django.db.models.functions import Coalesce
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListAPIView
-from rest_framework import status, permissions
+from rest_framework import status
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -250,19 +250,20 @@ class Chatbot(AuthMixin, APIView):
 
     def post(self, request):
         user_ques = request.data.get("query")
-        session_id = request.data.get("session_id")
+        # Changed from session_id to chat_id
+        chat_id = request.data.get("chat_id")
 
         if not user_ques:
             return Response(error_response("Query is required."), status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            if session_id:
+            if chat_id:
                 try:
                     chat_session = ChatSession.objects.get(
-                        id=session_id, user=request.user)
-                    print(f"Debug: Continuing existing session {session_id}")
+                        id=chat_id, user=request.user)  # Using integer chat_id
+                    print(f"Debug: Continuing existing session {chat_id}")
                 except ChatSession.DoesNotExist:
-                    return Response(error_response("Invalid session ID."), status=status.HTTP_400_BAD_REQUEST)
+                    return Response(error_response("Invalid chat ID."), status=status.HTTP_400_BAD_REQUEST)
             else:
                 chat_session = ChatSession.objects.create(
                     user=request.user,
@@ -321,7 +322,7 @@ class Chatbot(AuthMixin, APIView):
 
             # Get conversation context if continuing session
             context = ""
-            if session_id:
+            if chat_id:  # Changed from session_id to chat_id
                 # Get previous messages for context (last 10 messages)
                 previous_messages = chat_session.messages.order_by(
                     "-timestamps")[:10]

@@ -7,6 +7,10 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.db import models
 from .utils import generate_ai_session_title
+from django.core.validators import FileExtensionValidator
+from django.core.exceptions import ValidationError
+import os
+from django.utils import timezone
 
 
 class CustomUserManager(BaseUserManager):
@@ -159,3 +163,181 @@ def auto_title_chat_session(sender, instance, created, **kwargs):
                 new_title = generate_ai_session_title(first_user_msg.content)
                 session.title = new_title
                 session.save(update_fields=["title"])
+
+
+class Post(models.Model):
+    CATEGORY_CHOICES = [
+        ('questions', 'Questions'),
+        ('experiences', 'Experiences'),
+        ('resources', 'Resources'),
+        ('general', 'General'),
+    ]
+
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    tags = models.JSONField(default=list, blank=True)
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
+    views_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['category']),
+            models.Index(fields=['author']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} by {self.author.username}"
+
+    def increment_views(self):
+        self.views_count += 1
+        self.save(update_fields=['views_count'])
+
+
+def post_image_upload_path(instance, filename):
+    ext = filename.split('.')[-1]
+    filename = f"{timezone.now().strftime('%Y%m%d_%H%M%S')}_{instance.post.id}_{filename}"
+    return os.path.join('community/posts', str(instance.post.id), filename)
+
+
+class PostImage(models.Model):
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(
+        upload_to=post_image_upload_path,
+        validators=[FileExtensionValidator(
+            allowed_extensions=['jpg', 'jpeg', 'png'])]
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"Image for {self.post.title}"
+
+    def clean(self):
+        if self.image.size > 5 * 1024 * 1024:
+            raise ValidationError("Image file size cannot exceed 5MB")
+
+
+class PostReaction(models.Model):
+    REACTION_CHOICES = [
+        ('like', 'Like'),
+        ('love', 'Love'),
+        ('support', 'Support'),
+        ('celebrate', 'Celebrate'),
+    ]
+
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='post_reactions')
+    reaction_type = models.CharField(max_length=20, choices=REACTION_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('post', 'user')
+        indexes = [
+            models.Index(fields=['post', 'user']),
+            models.Index(fields=['post', 'reaction_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} {self.reaction_type}d {self.post.title}"
+
+
+class SavedPost(models.Model):
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name='saved_by')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='saved_posts')
+    saved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('post', 'user')
+        ordering = ['-saved_at']
+
+    def __str__(self):
+        return f"{self.user.username} saved {self.post.title}"
+
+
+class Comment(models.Model):
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='comments')
+    parent = models.ForeignKey('self', null=True, blank=True,
+                               on_delete=models.CASCADE, related_name='replies')
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['post', 'parent']),
+            models.Index(fields=['author']),
+        ]
+
+    def __str__(self):
+        return f"Comment by {self.author.username} on {self.post.title}"
+
+class CommentLike(models.Model):
+    comment = models.ForeignKey(
+        Comment, on_delete=models.CASCADE, related_name='likes')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='comment_likes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('comment', 'user')
+
+    def __str__(self):
+        return f"{self.user.username} liked comment by {self.comment.author.username}"
+
+class PostReport(models.Model):
+    REASON_CHOICES = [
+        ('inappropriate_content', 'Inappropriate_content'),
+        ('spam', 'Spam'),
+        ('harassment', 'Harassment'),
+        ('misinformation', 'Misinformation'),
+        ('other', 'Other'),
+    ]
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('reviewed', 'Reviewed'),
+        ('resolved', 'Resolved'),
+        ('dismissed', 'Dismissed'),
+    ]
+
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name='reports')
+    reporter = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='post_reports')
+    reason = models.CharField(max_length=50, choices=REASON_CHOICES)
+    description = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_reports')
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['post']),
+        ]
+
+    def __str__(self):
+        return f"Report on {self.post.title} by {self.reporter.username}"

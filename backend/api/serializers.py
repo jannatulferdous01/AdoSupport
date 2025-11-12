@@ -1,7 +1,7 @@
-from .models import Post, PostImage, PostReaction, SavedPost, Comment, CommentLike, PostReport
 from rest_framework import serializers
-from .models import User, UserProfile, ChatHistory, ChatMessage, ChatSession, Post, PostImage, SavedPost, Comment, CommentLike, PostReaction, PostReport
 from django.contrib.auth import authenticate
+from .models import User, UserProfile, ChatHistory, ChatMessage, ChatSession, Post, PostImage, SavedPost, Comment, CommentLike, PostReaction, PostReport, Category, Product, ProductImage, Cart, CartItem, Order, OrderItem, Review
+
 
 # ------------------------------------ User and User Profile ------------------------------
 
@@ -324,3 +324,403 @@ class PostReportSerializer(serializers.ModelSerializer):
                 'description': 'Description is required when reason is "other"'
             })
         return data
+
+# ==================== Category Serializers ====================
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    """Category serializer"""
+    products_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Category
+        fields = [
+            'id', 'name', 'slug', 'description',
+            'image', 'products_count'
+        ]
+
+
+# ==================== Product Serializers ====================
+
+class ProductImageSerializer(serializers.ModelSerializer):
+    """Product image serializer"""
+    image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductImage
+        fields = ['id', 'image', 'uploaded_at']
+
+    def get_image(self, obj):
+        """Get full image URL"""
+        request = self.context.get('request')
+        if obj.image and hasattr(obj.image, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+
+class ProductListSerializer(serializers.ModelSerializer):
+    """Product list serializer (for list view)"""
+    category = serializers.CharField(source='category.slug')
+    rating = serializers.FloatField(read_only=True)
+    review_count = serializers.IntegerField(read_only=True)
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'name', 'description', 'price', 'discount_price',
+            'rating', 'review_count', 'category', 'tags', 'images',
+            'is_new', 'is_bestseller', 'in_stock', 'features', 'benefits'
+        ]
+
+    def get_images(self, obj):
+        """Get product images"""
+        request = self.context.get('request')
+        images = obj.images.all()
+        return ProductImageSerializer(images, many=True, context={'request': request}).data
+
+
+class ProductDetailSerializer(serializers.ModelSerializer):
+    """Product detail serializer (for single product view)"""
+    category = serializers.CharField(source='category.slug')
+    rating = serializers.FloatField(read_only=True)
+    review_count = serializers.IntegerField(read_only=True)
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'name', 'description', 'price', 'discount_price',
+            'rating', 'review_count', 'category', 'tags', 'images',
+            'is_new', 'is_bestseller', 'in_stock', 'features', 'benefits'
+        ]
+
+    def get_images(self, obj):
+        """Get product images"""
+        request = self.context.get('request')
+        images = obj.images.all()
+        return ProductImageSerializer(images, many=True, context={'request': request}).data
+
+
+class ProductAdminSerializer(serializers.ModelSerializer):
+    """Product serializer for admin (includes stock info)"""
+    category = serializers.CharField(source='category.slug')
+    rating = serializers.FloatField(read_only=True)
+    review_count = serializers.IntegerField(read_only=True)
+    total_sold = serializers.IntegerField(read_only=True)
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'name', 'description', 'price', 'discount_price',
+            'rating', 'review_count', 'category', 'tags', 'images',
+            'is_new', 'is_bestseller', 'in_stock', 'stock_quantity',
+            'total_sold', 'features', 'benefits', 'created_at', 'updated_at'
+        ]
+
+    def get_images(self, obj):
+        """Get product images"""
+        request = self.context.get('request')
+        images = obj.images.all()
+        return ProductImageSerializer(images, many=True, context={'request': request}).data
+
+
+# ==================== Cart Serializers ====================
+
+class CartProductSerializer(serializers.ModelSerializer):
+    """Simplified product serializer for cart items"""
+    image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['id', 'name', 'price', 'discount_price', 'image', 'in_stock']
+
+    def get_image(self, obj):
+        """Get first product image"""
+        request = self.context.get('request')
+        first_image = obj.images.first()
+        if first_image:
+            return ProductImageSerializer(first_image, context={'request': request}).data.get('image')
+        return None
+
+
+class CartItemSerializer(serializers.ModelSerializer):
+    """Cart item serializer"""
+    product = CartProductSerializer(read_only=True)
+    subtotal = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = CartItem
+        fields = ['id', 'product', 'quantity', 'subtotal']
+
+
+class CartSerializer(serializers.ModelSerializer):
+    """Cart serializer"""
+    items = CartItemSerializer(many=True, read_only=True)
+    user_id = serializers.CharField(source='user.id', read_only=True)
+    subtotal = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+    tax = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+    shipping = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+    total = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+    items_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Cart
+        fields = ['id', 'user_id', 'items', 'subtotal',
+                  'tax', 'shipping', 'total', 'items_count']
+
+
+class AddToCartSerializer(serializers.Serializer):
+    """Serializer for adding items to cart"""
+    product_id = serializers.CharField()
+    quantity = serializers.IntegerField(min_value=1)
+
+    def validate_product_id(self, value):
+        """Validate product exists and is in stock"""
+        try:
+            product = Product.objects.get(id=value)
+            if not product.in_stock:
+                raise serializers.ValidationError("Product is out of stock")
+            return value
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("Product not found")
+
+    def validate(self, data):
+        """Validate quantity against stock"""
+        product = Product.objects.get(id=data['product_id'])
+        if data['quantity'] > product.stock_quantity:
+            raise serializers.ValidationError({
+                'quantity': f"Only {product.stock_quantity} items available in stock"
+            })
+        return data
+
+
+class UpdateCartItemSerializer(serializers.Serializer):
+    """Serializer for updating cart item quantity"""
+    quantity = serializers.IntegerField(min_value=1)
+
+    def validate_quantity(self, value):
+        """Validate quantity against stock"""
+        cart_item = self.instance
+        if cart_item and value > cart_item.product.stock_quantity:
+            raise serializers.ValidationError(
+                f"Only {cart_item.product.stock_quantity} items available in stock"
+            )
+        return value
+
+
+# ==================== Order Serializers ====================
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    """Order item serializer"""
+    product = serializers.SerializerMethodField()
+    subtotal = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ['product', 'quantity', 'price', 'subtotal']
+
+    def get_product(self, obj):
+        """Get product info"""
+        return {
+            'id': str(obj.product.id) if obj.product else None,
+            'name': obj.product_name,
+            'image': obj.product_image
+        }
+
+
+class OrderListSerializer(serializers.ModelSerializer):
+    """Order list serializer (for list view)"""
+    items_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'order_number', 'status', 'total',
+            'items_count', 'created_at', 'delivered_at'
+        ]
+
+
+class OrderDetailSerializer(serializers.ModelSerializer):
+    """Order detail serializer (for single order view)"""
+    items = OrderItemSerializer(many=True, read_only=True)
+    items_count = serializers.IntegerField(read_only=True)
+    shipping_address = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'order_number', 'status', 'items', 'subtotal', 'tax',
+            'shipping_cost', 'total', 'shipping_address', 'payment_method',
+            'tracking_number', 'created_at', 'updated_at', 'delivered_at'
+        ]
+
+    def get_shipping_address(self, obj):
+        """Get formatted shipping address"""
+        return {
+            'full_name': obj.shipping_full_name,
+            'address_line1': obj.shipping_address_line1,
+            'address_line2': obj.shipping_address_line2,
+            'city': obj.shipping_city,
+            'state': obj.shipping_state,
+            'zipcode': obj.shipping_zipcode,
+            'country': obj.shipping_country,
+            'phone': obj.shipping_phone
+        }
+
+
+class CreateOrderSerializer(serializers.Serializer):
+    """Serializer for creating orders"""
+    shipping_address = serializers.DictField()
+    payment_method = serializers.CharField()
+
+    def validate_shipping_address(self, value):
+        """Validate shipping address has all required fields"""
+        required_fields = [
+            'full_name', 'address_line1', 'city', 'state',
+            'zipcode', 'country', 'phone'
+        ]
+
+        missing_fields = [
+            field for field in required_fields if field not in value]
+
+        if missing_fields:
+            raise serializers.ValidationError(
+                f"Missing required fields: {', '.join(missing_fields)}"
+            )
+
+        return value
+
+    def validate_payment_method(self, value):
+        """Validate payment method"""
+        valid_methods = ['credit_card', 'debit_card',
+                         'paypal', 'cash_on_delivery']
+        if value not in valid_methods:
+            raise serializers.ValidationError(
+                f"Invalid payment method. Must be one of: {', '.join(valid_methods)}"
+            )
+        return value
+
+
+class OrderAdminSerializer(serializers.ModelSerializer):
+    """Order serializer for admin"""
+    user = serializers.SerializerMethodField()
+    items_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'order_number', 'user', 'status', 'total',
+            'items_count', 'created_at'
+        ]
+
+    def get_user(self, obj):
+        """Get user info"""
+        return {
+            'id': str(obj.user.id),
+            'name': obj.user.username,
+            'email': obj.user.email
+        }
+
+
+class UpdateOrderStatusSerializer(serializers.Serializer):
+    """Serializer for updating order status"""
+    status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
+    tracking_number = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_status(self, value):
+        """Validate status transition"""
+        order = self.context.get('order')
+        if order:
+            # Define allowed status transitions
+            allowed_transitions = {
+                'pending': ['processing', 'cancelled'],
+                'processing': ['shipped', 'cancelled'],
+                'shipped': ['delivered'],
+                'delivered': [],
+                'cancelled': []
+            }
+
+            if order.status in allowed_transitions:
+                if value not in allowed_transitions[order.status]:
+                    raise serializers.ValidationError(
+                        f"Cannot change status from {order.status} to {value}"
+                    )
+
+        return value
+
+
+# ==================== Review Serializers ====================
+
+class ReviewSerializer(serializers.ModelSerializer):
+    """Review serializer"""
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Review
+        fields = ['id', 'user', 'rating', 'title', 'comment', 'created_at']
+
+    def get_user(self, obj):
+        """Get user info"""
+        request = self.context.get('request')
+        profile = obj.user.profile
+        avatar_url = None
+
+        if profile.profile_picture:
+            if request:
+                avatar_url = request.build_absolute_uri(
+                    profile.profile_picture.url)
+            else:
+                avatar_url = profile.profile_picture.url
+
+        return {
+            'id': str(obj.user.id),
+            'name': obj.user.username,
+            'avatar': avatar_url
+        }
+
+
+class CreateReviewSerializer(serializers.Serializer):
+    """Serializer for creating reviews"""
+    rating = serializers.IntegerField(min_value=1, max_value=5)
+    title = serializers.CharField(max_length=255)
+    comment = serializers.CharField()
+
+    def validate(self, data):
+        """Validate user hasn't already reviewed this product"""
+        user = self.context.get('user')
+        product = self.context.get('product')
+
+        if Review.objects.filter(user=user, product=product).exists():
+            raise serializers.ValidationError(
+                "You have already reviewed this product")
+
+        # Check if user has purchased this product
+        has_purchased = OrderItem.objects.filter(
+            order__user=user,
+            product=product,
+            order__status='delivered'
+        ).exists()
+
+        if not has_purchased:
+            raise serializers.ValidationError(
+                "You must purchase this product before reviewing it"
+            )
+
+        return data
+
+
+class UpdateReviewSerializer(serializers.Serializer):
+    """Serializer for updating reviews"""
+    rating = serializers.IntegerField(min_value=1, max_value=5, required=False)
+    title = serializers.CharField(max_length=255, required=False)
+    comment = serializers.CharField(required=False)

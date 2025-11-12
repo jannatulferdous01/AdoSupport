@@ -11,6 +11,9 @@ from django.core.validators import FileExtensionValidator
 from django.core.exceptions import ValidationError
 import os
 from django.utils import timezone
+import uuid
+from decimal import Decimal
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class CustomUserManager(BaseUserManager):
@@ -177,12 +180,12 @@ class Post(models.Model):
     content = models.TextField()
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     tags = models.JSONField(default=list, blank=True)
-    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='posts')
     views_count = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_deleted = models.BooleanField(default=False)
-
 
     class Meta:
         ordering = ['-created_at']
@@ -290,6 +293,7 @@ class Comment(models.Model):
     def __str__(self):
         return f"Comment by {self.author.username} on {self.post.title}"
 
+
 class CommentLike(models.Model):
     comment = models.ForeignKey(
         Comment, on_delete=models.CASCADE, related_name='likes')
@@ -302,6 +306,7 @@ class CommentLike(models.Model):
 
     def __str__(self):
         return f"{self.user.username} liked comment by {self.comment.author.username}"
+
 
 class PostReport(models.Model):
     REASON_CHOICES = [
@@ -341,3 +346,325 @@ class PostReport(models.Model):
 
     def __str__(self):
         return f"Report on {self.post.title} by {self.reporter.username}"
+
+# ====================================== Store ==========================================
+
+class Category(models.Model):
+    """Product category model"""
+
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, max_length=100)
+    description = models.TextField()
+    image = models.ImageField(
+        upload_to='store/categories/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "Categories"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def products_count(self):
+        """Get count of products in this category"""
+        return self.products.filter(in_stock=True).count()
+
+
+def product_image_upload_path(instance, filename):
+    """Generate upload path for product images"""
+    import os
+    from django.utils import timezone
+
+    ext = filename.split('.')[-1]
+    filename = f"{timezone.now().strftime('%Y%m%d_%H%M%S')}_{instance.product.id}_{filename}"
+    return os.path.join('store/products', str(instance.product.id), filename)
+
+
+class Product(models.Model):
+    """Product model"""
+
+    name = models.CharField(max_length=255)
+    description = models.TextField()
+    price = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    discount_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
+    category = models.ForeignKey(
+        Category, on_delete=models.CASCADE, related_name='products')
+    tags = models.JSONField(default=list, blank=True)
+    features = models.JSONField(default=list, blank=True)
+    benefits = models.JSONField(default=list, blank=True)
+
+    is_new = models.BooleanField(default=False)
+    is_bestseller = models.BooleanField(default=False)
+    in_stock = models.BooleanField(default=True)
+    stock_quantity = models.IntegerField(
+        default=0, validators=[MinValueValidator(0)])
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['category']),
+            models.Index(fields=['is_bestseller']),
+            models.Index(fields=['in_stock']),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def rating(self):
+        """Calculate average rating from reviews"""
+        reviews = self.reviews.all()
+        if reviews.exists():
+            return round(reviews.aggregate(models.Avg('rating'))['rating__avg'], 1)
+        return 0.0
+
+    @property
+    def review_count(self):
+        """Get count of reviews"""
+        return self.reviews.count()
+
+    @property
+    def total_sold(self):
+        """Get total quantity sold"""
+        return OrderItem.objects.filter(product=self).aggregate(
+            total=models.Sum('quantity')
+        )['total'] or 0
+
+    def reduce_stock(self, quantity):
+        """Reduce stock quantity"""
+        if self.stock_quantity >= quantity:
+            self.stock_quantity -= quantity
+            if self.stock_quantity == 0:
+                self.in_stock = False
+            self.save()
+            return True
+        return False
+
+    def increase_stock(self, quantity):
+        """Increase stock quantity"""
+        self.stock_quantity += quantity
+        if self.stock_quantity > 0:
+            self.in_stock = True
+        self.save()
+
+
+class ProductImage(models.Model):
+    """Product image model"""
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(
+        upload_to=product_image_upload_path,
+        validators=[FileExtensionValidator(
+            allowed_extensions=['jpg', 'jpeg', 'png', 'webp'])]
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"Image for {self.product.name}"
+
+
+class Cart(models.Model):
+    """Shopping cart model"""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='cart')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Cart for {self.user.username}"
+
+    @property
+    def subtotal(self):
+        """Calculate cart subtotal"""
+        return sum(item.subtotal for item in self.items.all())
+
+    @property
+    def tax(self):
+        """Calculate tax (10% of subtotal)"""
+        return round(self.subtotal * Decimal('0.10'), 2)
+
+    @property
+    def shipping(self):
+        """Calculate shipping cost"""
+        if self.subtotal > 50:
+            return Decimal('0.00')  # Free shipping over $50
+        return Decimal('5.00')
+
+    @property
+    def total(self):
+        """Calculate cart total"""
+        return self.subtotal + self.tax + self.shipping
+
+    @property
+    def items_count(self):
+        """Get total items count"""
+        return sum(item.quantity for item in self.items.all())
+
+
+class CartItem(models.Model):
+    """Cart item model"""
+
+    cart = models.ForeignKey(
+        Cart, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.IntegerField(
+        default=1, validators=[MinValueValidator(1)])
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('cart', 'product')
+
+    def __str__(self):
+        return f"{self.quantity}x {self.product.name}"
+
+    @property
+    def subtotal(self):
+        """Calculate item subtotal"""
+        price = self.product.discount_price if self.product.discount_price else self.product.price
+        return price * self.quantity
+
+
+class Order(models.Model):
+    """Order model"""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('shipped', 'Shipped'),
+        ('delivered', 'Delivered'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    order_number = models.CharField(max_length=20, unique=True)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='orders')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # Address
+    shipping_full_name = models.CharField(max_length=255)
+    shipping_address_line1 = models.CharField(max_length=255)
+    shipping_address_line2 = models.CharField(max_length=255, blank=True)
+    shipping_city = models.CharField(max_length=100)
+    shipping_state = models.CharField(max_length=100)
+    shipping_zipcode = models.CharField(max_length=20)
+    shipping_country = models.CharField(max_length=100)
+    shipping_phone = models.CharField(max_length=20)
+
+    # Payment
+    payment_method = models.CharField(max_length=50)
+
+    # Pricing
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2)
+    tax = models.DecimalField(max_digits=10, decimal_places=2)
+    shipping_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # Tracking
+    tracking_number = models.CharField(max_length=100, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['order_number']),
+        ]
+
+    def __str__(self):
+        return f"Order {self.order_number}"
+
+    @property
+    def items_count(self):
+        """Get total items count"""
+        return sum(item.quantity for item in self.items.all())
+
+    def generate_order_number(self):
+        """Generate unique order number"""
+        from django.utils import timezone
+        date_str = timezone.now().strftime('%Y%m%d')
+
+        # Get last order number for today
+        last_order = Order.objects.filter(
+            order_number__startswith=f'ORD-{date_str}'
+        ).order_by('-order_number').first()
+
+        if last_order:
+            last_num = int(last_order.order_number.split('-')[-1])
+            new_num = last_num + 1
+        else:
+            new_num = 1
+
+        return f'ORD-{date_str}-{new_num:06d}'
+
+    def save(self, *args, **kwargs):
+        if not self.order_number:
+            self.order_number = self.generate_order_number()
+        super().save(*args, **kwargs)
+
+
+class OrderItem(models.Model):
+    """Order item model"""
+
+    order = models.ForeignKey(
+        Order, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
+    # Store name in case product is deleted
+    product_name = models.CharField(max_length=255)
+    product_image = models.CharField(
+        max_length=500, blank=True)  # Store image URL
+    quantity = models.IntegerField(validators=[MinValueValidator(1)])
+    # Price at time of purchase
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.quantity}x {self.product_name}"
+
+    @property
+    def subtotal(self):
+        """Calculate item subtotal"""
+        return self.price * self.quantity
+
+
+class Review(models.Model):
+    """Product review model"""
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='reviews')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='reviews')
+    rating = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)])
+    title = models.CharField(max_length=255)
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('product', 'user')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['product', '-created_at']),
+            models.Index(fields=['rating']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product.name} ({self.rating}/5)"

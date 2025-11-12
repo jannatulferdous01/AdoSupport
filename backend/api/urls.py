@@ -9,7 +9,13 @@ from .views import (
     ChatSessionDeleteView, ChatSessionMessageView, PostDetailView,
     PostReactionView, PostListCreateView, CommentCreateView,
     CommentDeleteView, CommentLikeView, CommentReplyView,
-    PostReportView, PostSaveView
+    PostReportView, PostSaveView,
+    ProductListView, ProductDetailView, CategoryListView,
+    CartView, CartItemView, CartItemDetailView,
+    OrderListView, OrderDetailView,
+    ProductReviewListView, ReviewDetailView,
+    AdminProductListView, AdminProductDetailView,
+    AdminOrderListView, AdminOrderDetailView, AdminStatisticsView
 )
 
 urlpatterns = [
@@ -37,7 +43,7 @@ urlpatterns = [
     # ========================== Community - Posts ==========================
     path('community/posts/', PostListCreateView.as_view(), name='community-posts'),
     path('community/posts', PostListCreateView.as_view(),
-         name='community-posts-no-slash'),  # Without trailing slash
+         name='community-posts-no-slash'),
 
     path('community/posts/<int:post_id>/',
          PostDetailView.as_view(), name='post-detail'),
@@ -80,4 +86,77 @@ urlpatterns = [
          CommentDeleteView.as_view(), name='comment-delete'),
     path('community/comments/<int:comment_id>',
          CommentDeleteView.as_view(), name='comment-delete-no-slash'),
+
+    # ========================== Store - Products ==========================
+    path('store/products/', ProductListView.as_view(), name='product-list'),
+    path('store/products', ProductListView.as_view(),
+         name='product-list-no-slash'),
+
+    path('store/products/<int:product_id>/',
+         ProductDetailView.as_view(), name='product-detail'),
+    path('store/products/<int:product_id>',
+         ProductDetailView.as_view(), name='product-detail-no-slash'),
+
+    # ========================== Store - Categories ==========================
+    path('store/categories/', CategoryListView.as_view(), name='category-list'),
+    path('store/categories', CategoryListView.as_view(),
+         name='category-list-no-slash'),
+
+    # ========================== Store - Cart ==========================
+    path('store/cart/', CartView.as_view(), name='cart'),
+    path('store/cart', CartView.as_view(), name='cart-no-slash'),
+
+    path('store/cart/items/', CartItemView.as_view(), name='cart-items'),
+    path('store/cart/items', CartItemView.as_view(), name='cart-items-no-slash'),
+
+    path('store/cart/items/<int:item_id>/',
+         CartItemDetailView.as_view(), name='cart-item-detail'),
+    path('store/cart/items/<int:item_id>', CartItemDetailView.as_view(),
+         name='cart-item-detail-no-slash'),
+
+    # ========================== Store - Orders ==========================
+    path('store/orders/', OrderListView.as_view(), name='order-list'),
+    path('store/orders', OrderListView.as_view(), name='order-list-no-slash'),
+
+    path('store/orders/<int:order_id>/',
+         OrderDetailView.as_view(), name='order-detail'),
+    path('store/orders/<int:order_id>',
+         OrderDetailView.as_view(), name='order-detail-no-slash'),
+
+    # ========================== Store - Reviews ==========================
+    path('store/products/<int:product_id>/reviews/',
+         ProductReviewListView.as_view(), name='product-reviews'),
+    path('store/products/<int:product_id>/reviews',
+         ProductReviewListView.as_view(), name='product-reviews-no-slash'),
+
+    path('store/reviews/<int:review_id>/',
+         ReviewDetailView.as_view(), name='review-detail'),
+    path('store/reviews/<int:review_id>',
+         ReviewDetailView.as_view(), name='review-detail-no-slash'),
+
+    # ========================== Store - Admin ==========================
+    path('store/admin/products/', AdminProductListView.as_view(),
+         name='admin-product-list'),
+    path('store/admin/products', AdminProductListView.as_view(),
+         name='admin-product-list-no-slash'),
+
+    path('store/admin/products/<int:product_id>/',
+         AdminProductDetailView.as_view(), name='admin-product-detail'),
+    path('store/admin/products/<int:product_id>',
+         AdminProductDetailView.as_view(), name='admin-product-detail-no-slash'),
+
+    path('store/admin/orders/', AdminOrderListView.as_view(),
+         name='admin-order-list'),
+    path('store/admin/orders', AdminOrderListView.as_view(),
+         name='admin-order-list-no-slash'),
+
+    path('store/admin/orders/<int:order_id>/',
+         AdminOrderDetailView.as_view(), name='admin-order-detail'),
+    path('store/admin/orders/<int:order_id>',
+         AdminOrderDetailView.as_view(), name='admin-order-detail-no-slash'),
+
+    path('store/admin/statistics/',
+         AdminStatisticsView.as_view(), name='admin-statistics'),
+    path('store/admin/statistics', AdminStatisticsView.as_view(),
+         name='admin-statistics-no-slash'),
 ]

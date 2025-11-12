@@ -1,3 +1,18 @@
+from .serializers import (
+    CategorySerializer, ProductListSerializer, ProductDetailSerializer,
+    ProductAdminSerializer, CartSerializer, AddToCartSerializer,
+    UpdateCartItemSerializer, OrderListSerializer, OrderDetailSerializer,
+    CreateOrderSerializer, OrderAdminSerializer, UpdateOrderStatusSerializer,
+    ReviewSerializer, CreateReviewSerializer, UpdateReviewSerializer
+)
+from .models import (
+    Category, Product, ProductImage, Cart, CartItem,
+    Order, OrderItem, Review
+)
+from rest_framework.permissions import IsAdminUser
+from decimal import Decimal
+from django.utils import timezone
+from django.db.models import Q, Avg, Count, Sum, F
 from collections import defaultdict
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import NotAuthenticated
@@ -22,8 +37,8 @@ from django.db.models import Count, OuterRef, Subquery, Q, F, Value, TextField, 
 from django.db import models
 
 from .utils import success_response, error_response, api_error, api_ok
-from .models import User, UserProfile, ChatHistory, ChatSession, ChatMessage, Comment, CommentLike, Post, PostReaction, PostReport, PostImage, SavedPost
-from .serializers import UserProfileSerializer, ChatSessionSerializers, ChatMessageSerializer, PostListSerializer, PostImageSerializer, PostCreateUpdateSerializer, PostDetailSerializer, PostReactionSerializer, PostReportSerializer
+from .models import User, UserProfile, ChatHistory, ChatSession, ChatMessage, Comment, CommentLike, Post, PostReaction, PostReport, PostImage, SavedPost, Category, Product, ProductImage, Cart, CartItem, Order, OrderItem, Review
+from .serializers import UserProfileSerializer, ChatSessionSerializers, ChatMessageSerializer, PostListSerializer, PostImageSerializer, PostCreateUpdateSerializer, PostDetailSerializer, PostReactionSerializer, PostReportSerializer, CategorySerializer, ProductListSerializer, ProductDetailSerializer, ProductAdminSerializer, CartSerializer, AddToCartSerializer, UpdateCartItemSerializer, OrderListSerializer, OrderDetailSerializer, CreateOrderSerializer, OrderAdminSerializer, UpdateOrderStatusSerializer, ReviewSerializer, CreateReviewSerializer, UpdateReviewSerializer
 
 
 class AuthMixin:
@@ -613,9 +628,9 @@ class PostListCreateView(AuthMixin, APIView):
         """Create a new post"""
         try:
             # Validate required fields
-            title = request.data.get('title')
-            content = request.data.get('content')
-            category = request.data.get('category')
+            title = request.data.get('title', '').strip()
+            content = request.data.get('content', '').strip()
+            category = request.data.get('category', '').strip()
 
             if not all([title, content, category]):
                 missing_fields = []
@@ -1386,6 +1401,1509 @@ class PostReportView(AuthMixin, APIView):
         except Exception as e:
             return api_error(
                 "Failed to report post",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+# ==================== Product Views ====================
+
+class ProductListView(APIView):
+    """
+    GET: List all products with filtering and search
+    """
+
+    def get(self, request):
+        """Get all products with filtering, searching, and sorting"""
+        try:
+            # Start with all products
+            products = Product.objects.select_related(
+                'category').prefetch_related('images', 'reviews')
+
+            # ========== Filtering ==========
+
+            # Filter by category
+            category = request.GET.get('category')
+            if category:
+                products = products.filter(category__slug=category)
+
+            # Filter by tags
+            tags = request.GET.get('tags')
+            if tags:
+                tag_list = [tag.strip() for tag in tags.split(',')]
+                for tag in tag_list:
+                    products = products.filter(tags__contains=[tag])
+
+            # Search in name and description
+            search = request.GET.get('search')
+            if search:
+                products = products.filter(
+                    Q(name__icontains=search) |
+                    Q(description__icontains=search)
+                )
+
+            # Price range filtering
+            min_price = request.GET.get('min_price')
+            if min_price:
+                try:
+                    products = products.filter(price__gte=Decimal(min_price))
+                except:
+                    pass
+
+            max_price = request.GET.get('max_price')
+            if max_price:
+                try:
+                    products = products.filter(price__lte=Decimal(max_price))
+                except:
+                    pass
+
+            # Boolean filters
+            is_new = request.GET.get('is_new')
+            if is_new and is_new.lower() == 'true':
+                products = products.filter(is_new=True)
+
+            is_bestseller = request.GET.get('is_bestseller')
+            if is_bestseller and is_bestseller.lower() == 'true':
+                products = products.filter(is_bestseller=True)
+
+            in_stock = request.GET.get('in_stock')
+            if in_stock and in_stock.lower() == 'true':
+                products = products.filter(in_stock=True)
+
+            # ========== Sorting ==========
+
+            sort = request.GET.get('sort', 'newest')
+
+            if sort == 'price_asc':
+                products = products.order_by('price')
+            elif sort == 'price_desc':
+                products = products.order_by('-price')
+            elif sort == 'newest':
+                products = products.order_by('-created_at')
+            elif sort == 'rating':
+                products = products.annotate(
+                    avg_rating=Avg('reviews__rating')
+                ).order_by('-avg_rating')
+
+            # ========== Pagination ==========
+
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 20))
+
+            # Limit max items per page
+            if limit > 50:
+                limit = 50
+
+            total_count = products.count()
+            total_pages = (total_count + limit - 1) // limit
+
+            start = (page - 1) * limit
+            end = start + limit
+
+            products_page = products[start:end]
+
+            # Serialize products
+            serializer = ProductListSerializer(
+                products_page,
+                many=True,
+                context={'request': request}
+            )
+
+            return api_ok(
+                "Products retrieved successfully",
+                data=serializer.data,
+                meta={
+                    'total_count': total_count,
+                    'current_page': page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_previous': page > 1
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve products",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class ProductDetailView(APIView):
+    """
+    GET: Get single product details
+    """
+
+    def get(self, request, product_id):
+        """Get single product"""
+        try:
+            product = Product.objects.select_related('category').prefetch_related(
+                'images', 'reviews'
+            ).get(id=product_id, in_stock=True)
+
+            serializer = ProductDetailSerializer(
+                product, context={'request': request})
+
+            return api_ok(
+                "Product retrieved successfully",
+                data=serializer.data
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND",
+                details={'product_id': product_id}
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve product",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Category Views ====================
+
+class CategoryListView(APIView):
+    """
+    GET: List all categories
+    """
+
+    def get(self, request):
+        """Get all categories"""
+        try:
+            categories = Category.objects.all()
+            serializer = CategorySerializer(
+                categories, many=True, context={'request': request})
+
+            return api_ok(
+                "Categories retrieved successfully",
+                data=serializer.data
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve categories",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Cart Views ====================
+
+class CartView(AuthMixin, APIView):
+    """
+    GET: Get user's cart
+    DELETE: Clear cart
+    """
+
+    def get(self, request):
+        """Get user's shopping cart"""
+        try:
+            # Get or create cart for user
+            cart, created = Cart.objects.get_or_create(user=request.user)
+
+            serializer = CartSerializer(cart, context={'request': request})
+
+            return api_ok(
+                "Cart retrieved successfully",
+                data=serializer.data
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve cart",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def delete(self, request):
+        """Clear user's cart"""
+        try:
+            cart = Cart.objects.get(user=request.user)
+            cart.items.all().delete()
+
+            return api_ok(
+                "Cart cleared successfully",
+                data={'cart_id': str(cart.id)}
+            )
+
+        except Cart.DoesNotExist:
+            return api_error(
+                "Cart not found",
+                status_code=404,
+                code="CART_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to clear cart",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class CartItemView(AuthMixin, APIView):
+    """
+    POST: Add item to cart
+    """
+
+    def post(self, request):
+        """Add item to cart"""
+        try:
+            serializer = AddToCartSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            product_id = serializer.validated_data['product_id']
+            quantity = serializer.validated_data['quantity']
+
+            # Get or create cart
+            cart, created = Cart.objects.get_or_create(user=request.user)
+
+            # Get product
+            product = Product.objects.get(id=product_id)
+
+            # Check if product already in cart
+            cart_item, created = CartItem.objects.get_or_create(
+                cart=cart,
+                product=product,
+                defaults={'quantity': quantity}
+            )
+
+            if not created:
+                # Update quantity if item already exists
+                new_quantity = cart_item.quantity + quantity
+
+                if new_quantity > product.stock_quantity:
+                    return api_error(
+                        "Insufficient stock",
+                        status_code=400,
+                        code="INSUFFICIENT_STOCK",
+                        details={
+                            'available': product.stock_quantity,
+                            'requested': new_quantity
+                        }
+                    )
+
+                cart_item.quantity = new_quantity
+                cart_item.save()
+
+            return api_ok(
+                "Item added to cart successfully",
+                data={
+                    'cart_id': str(cart.id),
+                    'item_id': str(cart_item.id),
+                    'product_id': str(product.id),
+                    'quantity': cart_item.quantity,
+                    'subtotal': float(cart_item.subtotal)
+                },
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to add item to cart",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class CartItemDetailView(AuthMixin, APIView):
+    """
+    PATCH: Update cart item quantity
+    DELETE: Remove item from cart
+    """
+
+    def patch(self, request, item_id):
+        """Update cart item quantity"""
+        try:
+            cart_item = CartItem.objects.select_related('product').get(
+                id=item_id,
+                cart__user=request.user
+            )
+
+            serializer = UpdateCartItemSerializer(
+                instance=cart_item,
+                data=request.data
+            )
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            quantity = serializer.validated_data['quantity']
+
+            # Check stock
+            if quantity > cart_item.product.stock_quantity:
+                return api_error(
+                    "Insufficient stock",
+                    status_code=400,
+                    code="INSUFFICIENT_STOCK",
+                    details={
+                        'available': cart_item.product.stock_quantity,
+                        'requested': quantity
+                    }
+                )
+
+            cart_item.quantity = quantity
+            cart_item.save()
+
+            return api_ok(
+                "Cart item updated successfully",
+                data={
+                    'item_id': str(cart_item.id),
+                    'quantity': cart_item.quantity,
+                    'subtotal': float(cart_item.subtotal)
+                }
+            )
+
+        except CartItem.DoesNotExist:
+            return api_error(
+                "Cart item not found",
+                status_code=404,
+                code="CART_ITEM_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to update cart item",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def delete(self, request, item_id):
+        """Remove item from cart"""
+        try:
+            cart_item = CartItem.objects.get(
+                id=item_id,
+                cart__user=request.user
+            )
+
+            cart_item.delete()
+
+            return api_ok(
+                "Item removed from cart successfully",
+                data={'removed_item_id': str(item_id)}
+            )
+
+        except CartItem.DoesNotExist:
+            return api_error(
+                "Cart item not found",
+                status_code=404,
+                code="CART_ITEM_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to remove cart item",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Order Views ====================
+
+class OrderListView(AuthMixin, APIView):
+    """
+    GET: Get user's orders
+    POST: Create new order
+    """
+
+    def get(self, request):
+        """Get user's orders"""
+        try:
+            orders = Order.objects.filter(
+                user=request.user).prefetch_related('items')
+
+            # Filter by status
+            status_filter = request.GET.get('status')
+            if status_filter:
+                orders = orders.filter(status=status_filter)
+
+            # Pagination
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 10))
+
+            total_count = orders.count()
+            total_pages = (total_count + limit - 1) // limit
+
+            start = (page - 1) * limit
+            end = start + limit
+
+            orders_page = orders[start:end]
+
+            serializer = OrderListSerializer(orders_page, many=True)
+
+            return api_ok(
+                "Orders retrieved successfully",
+                data=serializer.data,
+                meta={
+                    'total_count': total_count,
+                    'current_page': page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_previous': page > 1
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve orders",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def post(self, request):
+        """Create new order from cart"""
+        try:
+            serializer = CreateOrderSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            # Get user's cart
+            try:
+                cart = Cart.objects.prefetch_related(
+                    'items__product').get(user=request.user)
+            except Cart.DoesNotExist:
+                return api_error(
+                    "Cart not found",
+                    status_code=404,
+                    code="CART_NOT_FOUND"
+                )
+
+            # Check if cart is empty
+            if not cart.items.exists():
+                return api_error(
+                    "Cannot create order with empty cart",
+                    status_code=400,
+                    code="CART_EMPTY"
+                )
+
+            # Check stock availability for all items
+            for item in cart.items.all():
+                if item.quantity > item.product.stock_quantity:
+                    return api_error(
+                        f"Insufficient stock for {item.product.name}",
+                        status_code=400,
+                        code="INSUFFICIENT_STOCK",
+                        details={
+                            'product': item.product.name,
+                            'available': item.product.stock_quantity,
+                            'requested': item.quantity
+                        }
+                    )
+
+            # Create order
+            shipping_address = serializer.validated_data['shipping_address']
+            payment_method = serializer.validated_data['payment_method']
+
+            order = Order.objects.create(
+                user=request.user,
+                shipping_full_name=shipping_address['full_name'],
+                shipping_address_line1=shipping_address['address_line1'],
+                shipping_address_line2=shipping_address.get(
+                    'address_line2', ''),
+                shipping_city=shipping_address['city'],
+                shipping_state=shipping_address['state'],
+                shipping_zipcode=shipping_address['zipcode'],
+                shipping_country=shipping_address['country'],
+                shipping_phone=shipping_address['phone'],
+                payment_method=payment_method,
+                subtotal=cart.subtotal,
+                tax=cart.tax,
+                shipping_cost=cart.shipping,
+                total=cart.total
+            )
+
+            # Create order items and reduce stock
+            for item in cart.items.all():
+                # Get product image URL
+                first_image = item.product.images.first()
+                image_url = ''
+                if first_image:
+                    image_url = request.build_absolute_uri(
+                        first_image.image.url)
+
+                # Get price (use discount price if available)
+                price = item.product.discount_price if item.product.discount_price else item.product.price
+
+                OrderItem.objects.create(
+                    order=order,
+                    product=item.product,
+                    product_name=item.product.name,
+                    product_image=image_url,
+                    quantity=item.quantity,
+                    price=price
+                )
+
+                # Reduce stock
+                item.product.reduce_stock(item.quantity)
+
+            # Clear cart
+            cart.items.all().delete()
+
+            return api_ok(
+                "Order created successfully",
+                data={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'total': float(order.total),
+                    'status': order.status
+                },
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to create order",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class OrderDetailView(AuthMixin, APIView):
+    """
+    GET: Get single order details
+    """
+
+    def get(self, request, order_id):
+        """Get order details"""
+        try:
+            order = Order.objects.prefetch_related('items').get(
+                id=order_id,
+                user=request.user
+            )
+
+            serializer = OrderDetailSerializer(order)
+
+            return api_ok(
+                "Order retrieved successfully",
+                data=serializer.data
+            )
+
+        except Order.DoesNotExist:
+            return api_error(
+                "Order not found",
+                status_code=404,
+                code="ORDER_NOT_FOUND",
+                details={'order_id': order_id}
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve order",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Review Views ====================
+
+class ProductReviewListView(APIView):
+    """
+    GET: Get product reviews
+    POST: Add product review (auth required)
+    """
+
+    def get(self, request, product_id):
+        """Get product reviews"""
+        try:
+            # Check if product exists
+            product = Product.objects.get(id=product_id)
+
+            reviews = Review.objects.select_related('user', 'user__profile').filter(
+                product=product
+            )
+
+            # Filter by rating
+            rating_filter = request.GET.get('rating')
+            if rating_filter:
+                try:
+                    reviews = reviews.filter(rating=int(rating_filter))
+                except:
+                    pass
+
+            # Pagination
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 10))
+
+            total_count = reviews.count()
+            total_pages = (total_count + limit - 1) // limit
+
+            start = (page - 1) * limit
+            end = start + limit
+
+            reviews_page = reviews[start:end]
+
+            serializer = ReviewSerializer(
+                reviews_page, many=True, context={'request': request})
+
+            # Calculate rating distribution
+            rating_distribution = {}
+            for i in range(1, 6):
+                rating_distribution[str(i)] = reviews.filter(rating=i).count()
+
+            # Calculate average rating
+            avg_rating = reviews.aggregate(Avg('rating'))['rating__avg'] or 0
+
+            return api_ok(
+                "Reviews retrieved successfully",
+                data=serializer.data,
+                meta={
+                    'total_count': total_count,
+                    'average_rating': round(avg_rating, 1),
+                    'rating_distribution': rating_distribution,
+                    'current_page': page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_previous': page > 1
+                }
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve reviews",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def post(self, request, product_id):
+        """Add product review"""
+        # Require authentication
+        if not request.user.is_authenticated:
+            return api_error(
+                "Authentication required",
+                status_code=401,
+                code="UNAUTHORIZED"
+            )
+
+        try:
+            product = Product.objects.get(id=product_id)
+
+            serializer = CreateReviewSerializer(
+                data=request.data,
+                context={'user': request.user, 'product': product}
+            )
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            # Create review
+            review = Review.objects.create(
+                product=product,
+                user=request.user,
+                rating=serializer.validated_data['rating'],
+                title=serializer.validated_data['title'],
+                comment=serializer.validated_data['comment']
+            )
+
+            return api_ok(
+                "Review added successfully",
+                data={
+                    'review_id': str(review.id),
+                    'product_id': str(product.id),
+                    'rating': review.rating,
+                    'created_at': review.created_at.isoformat()
+                },
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND"
+            )
+        except Exception as e:
+            error_message = str(e)
+
+            if "already reviewed" in error_message.lower():
+                return api_error(
+                    "You have already reviewed this product",
+                    status_code=409,
+                    code="ALREADY_REVIEWED"
+                )
+            elif "must purchase" in error_message.lower():
+                return api_error(
+                    "You must purchase this product before reviewing it",
+                    status_code=403,
+                    code="PURCHASE_REQUIRED"
+                )
+
+            return api_error(
+                "Failed to add review",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': error_message}
+            )
+
+
+class ReviewDetailView(AuthMixin, APIView):
+    """
+    PATCH: Update review
+    DELETE: Delete review
+    """
+
+    def patch(self, request, review_id):
+        """Update review"""
+        try:
+            review = Review.objects.get(id=review_id, user=request.user)
+
+            serializer = UpdateReviewSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            # Update fields
+            if 'rating' in serializer.validated_data:
+                review.rating = serializer.validated_data['rating']
+            if 'title' in serializer.validated_data:
+                review.title = serializer.validated_data['title']
+            if 'comment' in serializer.validated_data:
+                review.comment = serializer.validated_data['comment']
+
+            review.save()
+
+            return api_ok(
+                "Review updated successfully",
+                data={
+                    'review_id': str(review.id),
+                    'updated_at': review.updated_at.isoformat()
+                }
+            )
+
+        except Review.DoesNotExist:
+            return api_error(
+                "Review not found",
+                status_code=404,
+                code="REVIEW_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to update review",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def delete(self, request, review_id):
+        """Delete review"""
+        try:
+            review = Review.objects.get(id=review_id, user=request.user)
+            review.delete()
+
+            return api_ok(
+                "Review deleted successfully",
+                data={'deleted_review_id': str(review_id)}
+            )
+
+        except Review.DoesNotExist:
+            return api_error(
+                "Review not found",
+                status_code=404,
+                code="REVIEW_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to delete review",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Admin Views ====================
+
+class AdminProductListView(AuthMixin, APIView):
+    """
+    GET: Get all products (admin only)
+    POST: Create new product (admin only)
+    """
+    permission_classes = [IsAdminUser]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get(self, request):
+        """Get all products for admin"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            products = Product.objects.select_related(
+                'category').prefetch_related('images')
+
+            # Filter by category
+            category = request.GET.get('category')
+            if category:
+                products = products.filter(category__slug=category)
+
+            # Filter by stock status
+            in_stock = request.GET.get('in_stock')
+            if in_stock:
+                products = products.filter(in_stock=in_stock.lower() == 'true')
+
+            # Pagination
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 20))
+
+            total_count = products.count()
+            total_pages = (total_count + limit - 1) // limit
+
+            start = (page - 1) * limit
+            end = start + limit
+
+            products_page = products[start:end]
+
+            serializer = ProductAdminSerializer(
+                products_page, many=True, context={'request': request})
+
+            return api_ok(
+                "Products retrieved successfully",
+                data=serializer.data,
+                meta={
+                    'total_count': total_count,
+                    'current_page': page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_previous': page > 1
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve products",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def post(self, request):
+        """Create new product (admin only)"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            # Validate required fields
+            name = request.data.get('name')
+            description = request.data.get('description')
+            price = request.data.get('price')
+            category_slug = request.data.get('category')
+
+            if not all([name, description, price, category_slug]):
+                missing_fields = []
+                if not name:
+                    missing_fields.append('name')
+                if not description:
+                    missing_fields.append('description')
+                if not price:
+                    missing_fields.append('price')
+                if not category_slug:
+                    missing_fields.append('category')
+
+                return api_error(
+                    "Missing required fields",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details={'missing_fields': missing_fields}
+                )
+
+            # Get category
+            try:
+                category = Category.objects.get(slug=category_slug)
+            except Category.DoesNotExist:
+                return api_error(
+                    "Category not found",
+                    status_code=404,
+                    code="CATEGORY_NOT_FOUND",
+                    details={'category': category_slug}
+                )
+
+            # Process optional fields
+            discount_price = request.data.get('discount_price')
+            tags = request.data.get('tags', '[]')
+            features = request.data.get('features', '[]')
+            benefits = request.data.get('benefits', '[]')
+
+            # Parse JSON fields
+            import json
+            try:
+                if isinstance(tags, str):
+                    tags = json.loads(tags)
+                if isinstance(features, str):
+                    features = json.loads(features)
+                if isinstance(benefits, str):
+                    benefits = json.loads(benefits)
+            except json.JSONDecodeError:
+                return api_error(
+                    "Invalid JSON format for tags, features, or benefits",
+                    status_code=400,
+                    code="INVALID_REQUEST"
+                )
+
+            # Create product
+            product = Product.objects.create(
+                name=name,
+                description=description,
+                price=Decimal(price),
+                discount_price=Decimal(
+                    discount_price) if discount_price else None,
+                category=category,
+                tags=tags,
+                features=features,
+                benefits=benefits,
+                is_new=request.data.get('is_new', 'false').lower() == 'true',
+                is_bestseller=request.data.get(
+                    'is_bestseller', 'false').lower() == 'true',
+                in_stock=request.data.get(
+                    'in_stock', 'true').lower() == 'true',
+                stock_quantity=int(request.data.get('stock_quantity', 0))
+            )
+
+            # Handle images
+            images = request.FILES.getlist('images', [])
+
+            if len(images) > 5:
+                product.delete()
+                return api_error(
+                    "Too many images",
+                    status_code=400,
+                    code="TOO_MANY_FILES",
+                    details={'max_files': 5, 'provided': len(images)}
+                )
+
+            for image in images:
+                # Check file size (5MB)
+                if image.size > 5 * 1024 * 1024:
+                    product.delete()
+                    return api_error(
+                        f"Image file too large: {image.name}",
+                        status_code=400,
+                        code="FILE_TOO_LARGE",
+                        details={'max_size': '5MB', 'file': image.name}
+                    )
+
+                # Check file type
+                ext = image.name.split('.')[-1].lower()
+                if ext not in ['jpg', 'jpeg', 'png', 'webp']:
+                    product.delete()
+                    return api_error(
+                        f"Invalid file type: {ext}",
+                        status_code=400,
+                        code="INVALID_FILE_TYPE",
+                        details={'allowed': ['jpg', 'jpeg',
+                                             'png', 'webp'], 'provided': ext}
+                    )
+
+                ProductImage.objects.create(product=product, image=image)
+
+            return api_ok(
+                "Product created successfully",
+                data={
+                    'product_id': str(product.id),
+                    'created_at': product.created_at.isoformat()
+                },
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to create product",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminProductDetailView(AuthMixin, APIView):
+    """
+    PATCH: Update product (admin only)
+    DELETE: Delete product (admin only)
+    """
+    permission_classes = [IsAdminUser]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def patch(self, request, product_id):
+        """Update product"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            product = Product.objects.get(id=product_id)
+
+            # Update fields if provided
+            if 'name' in request.data:
+                product.name = request.data['name']
+            if 'description' in request.data:
+                product.description = request.data['description']
+            if 'price' in request.data:
+                product.price = Decimal(request.data['price'])
+            if 'discount_price' in request.data:
+                discount_price = request.data['discount_price']
+                product.discount_price = Decimal(
+                    discount_price) if discount_price else None
+
+            if 'category' in request.data:
+                try:
+                    category = Category.objects.get(
+                        slug=request.data['category'])
+                    product.category = category
+                except Category.DoesNotExist:
+                    return api_error(
+                        "Category not found",
+                        status_code=404,
+                        code="CATEGORY_NOT_FOUND"
+                    )
+
+            # Update JSON fields
+            import json
+            if 'tags' in request.data:
+                tags = request.data['tags']
+                if isinstance(tags, str):
+                    product.tags = json.loads(tags)
+                else:
+                    product.tags = tags
+
+            if 'features' in request.data:
+                features = request.data['features']
+                if isinstance(features, str):
+                    product.features = json.loads(features)
+                else:
+                    product.features = features
+
+            if 'benefits' in request.data:
+                benefits = request.data['benefits']
+                if isinstance(benefits, str):
+                    product.benefits = json.loads(benefits)
+                else:
+                    product.benefits = benefits
+
+            # Update boolean fields
+            if 'is_new' in request.data:
+                product.is_new = request.data['is_new'].lower() == 'true'
+            if 'is_bestseller' in request.data:
+                product.is_bestseller = request.data['is_bestseller'].lower(
+                ) == 'true'
+            if 'in_stock' in request.data:
+                product.in_stock = request.data['in_stock'].lower() == 'true'
+            if 'stock_quantity' in request.data:
+                product.stock_quantity = int(request.data['stock_quantity'])
+
+            product.save()
+
+            # Handle new images
+            images = request.FILES.getlist('images', [])
+            if images:
+                for image in images:
+                    # Validate
+                    if image.size > 5 * 1024 * 1024:
+                        return api_error(
+                            f"Image file too large: {image.name}",
+                            status_code=400,
+                            code="FILE_TOO_LARGE"
+                        )
+
+                    ProductImage.objects.create(product=product, image=image)
+
+            return api_ok(
+                "Product updated successfully",
+                data={
+                    'product_id': str(product.id),
+                    'updated_at': product.updated_at.isoformat()
+                }
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to update product",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def delete(self, request, product_id):
+        """Delete product"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            product = Product.objects.get(id=product_id)
+            product.delete()
+
+            return api_ok(
+                "Product deleted successfully",
+                data={'deleted_product_id': str(product_id)}
+            )
+
+        except Product.DoesNotExist:
+            return api_error(
+                "Product not found",
+                status_code=404,
+                code="PRODUCT_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to delete product",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminOrderListView(AuthMixin, APIView):
+    """
+    GET: Get all orders (admin only)
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """Get all orders for admin"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            orders = Order.objects.select_related(
+                'user').prefetch_related('items')
+
+            # Filter by status
+            status_filter = request.GET.get('status')
+            if status_filter:
+                orders = orders.filter(status=status_filter)
+
+            # Filter by user
+            user_id = request.GET.get('user_id')
+            if user_id:
+                orders = orders.filter(user_id=user_id)
+
+            # Filter by date range
+            start_date = request.GET.get('start_date')
+            if start_date:
+                orders = orders.filter(created_at__date__gte=start_date)
+
+            end_date = request.GET.get('end_date')
+            if end_date:
+                orders = orders.filter(created_at__date__lte=end_date)
+
+            # Pagination
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 20))
+
+            total_count = orders.count()
+            total_pages = (total_count + limit - 1) // limit
+
+            # Calculate total revenue
+            total_revenue = orders.aggregate(Sum('total'))['total__sum'] or 0
+
+            start = (page - 1) * limit
+            end = start + limit
+
+            orders_page = orders[start:end]
+
+            serializer = OrderAdminSerializer(orders_page, many=True)
+
+            return api_ok(
+                "Orders retrieved successfully",
+                data=serializer.data,
+                meta={
+                    'total_count': total_count,
+                    'total_revenue': float(total_revenue),
+                    'current_page': page,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_previous': page > 1
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve orders",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminOrderDetailView(AuthMixin, APIView):
+    """
+    PATCH: Update order status (admin only)
+    """
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, order_id):
+        """Update order status"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            order = Order.objects.get(id=order_id)
+
+            serializer = UpdateOrderStatusSerializer(
+                data=request.data,
+                context={'order': order}
+            )
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            # Update status
+            new_status = serializer.validated_data['status']
+            order.status = new_status
+
+            # Update tracking number if provided
+            if 'tracking_number' in serializer.validated_data:
+                order.tracking_number = serializer.validated_data['tracking_number']
+
+            # Set delivered_at timestamp if status is delivered
+            if new_status == 'delivered' and not order.delivered_at:
+                order.delivered_at = timezone.now()
+
+            order.save()
+
+            return api_ok(
+                "Order status updated successfully",
+                data={
+                    'order_id': str(order.id),
+                    'status': order.status,
+                    'tracking_number': order.tracking_number,
+                    'updated_at': order.updated_at.isoformat()
+                }
+            )
+
+        except Order.DoesNotExist:
+            return api_error(
+                "Order not found",
+                status_code=404,
+                code="ORDER_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Failed to update order status",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminStatisticsView(AuthMixin, APIView):
+    """
+    GET: Get store statistics (admin only)
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """Get store statistics"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            from datetime import datetime, timedelta
+
+            # Get date range
+            period = request.GET.get('period', 'month')
+            end_date = timezone.now()
+
+            if period == 'today':
+                start_date = end_date.replace(
+                    hour=0, minute=0, second=0, microsecond=0)
+            elif period == 'week':
+                start_date = end_date - timedelta(days=7)
+            elif period == 'month':
+                start_date = end_date - timedelta(days=30)
+            elif period == 'year':
+                start_date = end_date - timedelta(days=365)
+            else:
+                # Custom date range
+                start_date_str = request.GET.get('start_date')
+                end_date_str = request.GET.get('end_date')
+
+                if start_date_str:
+                    start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                else:
+                    start_date = end_date - timedelta(days=30)
+
+            # Filter orders by date range
+            orders = Order.objects.filter(
+                created_at__gte=start_date,
+                created_at__lte=end_date
+            )
+
+            # Calculate overview statistics
+            total_revenue = orders.aggregate(Sum('total'))['total__sum'] or 0
+            total_orders = orders.count()
+            total_products = Product.objects.count()
+            total_customers = User.objects.filter(
+                orders__isnull=False).distinct().count()
+            average_order_value = total_revenue / total_orders if total_orders > 0 else 0
+
+            # Get top selling products
+            top_selling = OrderItem.objects.filter(
+                order__created_at__gte=start_date,
+                order__created_at__lte=end_date
+            ).values(
+                'product_id', 'product_name', 'product__category__name'
+            ).annotate(
+                total_sold=Sum('quantity'),
+                revenue=Sum(F('price') * F('quantity'))
+            ).order_by('-total_sold')[:5]
+
+            # Format top selling products
+            top_selling_products = [
+                {
+                    'product_id': str(item['product_id']),
+                    'name': item['product_name'],
+                    'category': item['product__category__name'],
+                    'total_sold': item['total_sold'],
+                    'revenue': float(item['revenue'])
+                }
+                for item in top_selling
+            ]
+
+            # Get recent orders
+            recent_orders = Order.objects.select_related(
+                'user').order_by('-created_at')[:10]
+            recent_orders_data = [
+                {
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'customer_name': order.user.username,
+                    'total': float(order.total),
+                    'status': order.status,
+                    'created_at': order.created_at.isoformat()
+                }
+                for order in recent_orders
+            ]
+
+            # Generate revenue chart data
+            revenue_chart = []
+            current_date = start_date
+            while current_date <= end_date:
+                daily_orders = orders.filter(
+                    created_at__date=current_date.date()
+                )
+                daily_revenue = daily_orders.aggregate(
+                    Sum('total'))['total__sum'] or 0
+                daily_count = daily_orders.count()
+
+                revenue_chart.append({
+                    'date': current_date.strftime('%Y-%m-%d'),
+                    'revenue': float(daily_revenue),
+                    'orders': daily_count
+                })
+
+                current_date += timedelta(days=1)
+
+            return api_ok(
+                "Statistics retrieved successfully",
+                data={
+                    'overview': {
+                        'total_revenue': float(total_revenue),
+                        'total_orders': total_orders,
+                        'total_products': total_products,
+                        'total_customers': total_customers,
+                        'average_order_value': float(average_order_value)
+                    },
+                    'top_selling_products': top_selling_products,
+                    'recent_orders': recent_orders_data,
+                    'revenue_chart': revenue_chart
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve statistics",
                 status_code=500,
                 code="SERVER_ERROR",
                 details={'message': str(e)}

@@ -394,6 +394,7 @@ class AdoSupportUser(HttpUser):
         # Add review
         review_data = {
             "rating": random.randint(3, 5),
+            "title": f"Review {random.randint(100, 999)}",
             "comment": f"Great product! Very helpful. {random.randint(100, 999)}"
         }
         with self.client.post(
@@ -756,6 +757,13 @@ class StoreUser(HttpUser):
         # Add review
         review_data = {
             "rating": random.randint(3, 5),
+            "title": random.choice([
+                "Excellent Product",
+                "Very Helpful",
+                "Highly Recommend",
+                "Great Quality",
+                "Worth It"
+            ]),
             "comment": random.choice([
                 "Excellent product! Really helps with stress management.",
                 "Good quality and very useful for daily wellness.",

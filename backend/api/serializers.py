@@ -724,3 +724,81 @@ class UpdateReviewSerializer(serializers.Serializer):
     rating = serializers.IntegerField(min_value=1, max_value=5, required=False)
     title = serializers.CharField(max_length=255, required=False)
     comment = serializers.CharField(required=False)
+
+
+# ==================== Admin Serializers ====================
+
+class AdminLoginSerializer(serializers.Serializer):
+    """Admin login serializer"""
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        """Validate admin credentials"""
+        email = data.get('email')
+        password = data.get('password')
+
+        if not email or not password:
+            raise serializers.ValidationError({
+                'message': 'Email and password are required'
+            })
+
+        # Authenticate user
+        from django.contrib.auth import authenticate
+        user = authenticate(email=email, password=password)
+
+        if not user:
+            raise serializers.ValidationError({
+                'message': 'Invalid credentials'
+            })
+
+        # Check if user is admin/staff
+        if not user.is_staff:
+            raise serializers.ValidationError({
+                'message': 'Access denied. Admin privileges required.'
+            })
+
+        data['user'] = user
+        return data
+
+
+class AdminProfileSerializer(serializers.ModelSerializer):
+    """Admin profile serializer"""
+    profile = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'username', 'role', 'is_staff', 
+                  'is_superuser', 'date_joined', 'profile', 'permissions']
+        read_only_fields = ['id', 'email', 'date_joined', 'is_staff', 'is_superuser']
+
+    def get_profile(self, obj):
+        """Get user profile info"""
+        try:
+            profile = obj.profile
+            return {
+                'name': profile.name if hasattr(profile, 'name') else obj.username,
+                'dob': profile.dob.isoformat() if hasattr(profile, 'dob') and profile.dob else None,
+                'address': profile.address if hasattr(profile, 'address') else None,
+                'profile_pic': self.context.get('request').build_absolute_uri(profile.profile_pic.url) if hasattr(profile, 'profile_pic') and profile.profile_pic else None
+            }
+        except:
+            return {
+                'name': obj.username,
+                'dob': None,
+                'address': None,
+                'profile_pic': None
+            }
+
+    def get_permissions(self, obj):
+        """Get user permissions"""
+        return {
+            'can_manage_users': obj.is_staff or obj.is_superuser,
+            'can_manage_posts': obj.is_staff or obj.is_superuser,
+            'can_manage_products': obj.is_staff or obj.is_superuser,
+            'can_manage_orders': obj.is_staff or obj.is_superuser,
+            'can_view_reports': obj.is_staff or obj.is_superuser,
+            'is_superuser': obj.is_superuser
+        }
+

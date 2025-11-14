@@ -3,7 +3,7 @@ from .serializers import (
     ProductAdminSerializer, CartSerializer, AddToCartSerializer,
     UpdateCartItemSerializer, OrderListSerializer, OrderDetailSerializer,
     CreateOrderSerializer, OrderAdminSerializer, UpdateOrderStatusSerializer,
-    ReviewSerializer, CreateReviewSerializer, UpdateReviewSerializer
+    ReviewSerializer, CreateReviewSerializer, UpdateReviewSerializer, AdminLoginSerializer, AdminProfileSerializer
 )
 from .models import (
     Category, Product, ProductImage, Cart, CartItem,
@@ -1408,6 +1408,7 @@ class PostReportView(AuthMixin, APIView):
 
 # ==================== Product Views ====================
 
+
 class ProductListView(APIView):
     """
     GET: List all products with filtering and search
@@ -2606,7 +2607,7 @@ class AdminProductDetailView(AuthMixin, APIView):
                     "Admin access required",
                     status_code=403,
                     code="FORBIDDEN"
-                               )
+                )
 
             product = Product.objects.get(id=product_id)
             product.delete()
@@ -2914,6 +2915,265 @@ class AdminStatisticsView(AuthMixin, APIView):
         except Exception as e:
             return api_error(
                 "Failed to retrieve statistics",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+# ==================== Admin Authentication Views ====================
+
+class AdminLoginView(APIView):
+    """
+    POST: Admin login
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        """Admin login"""
+        try:
+            serializer = AdminLoginSerializer(data=request.data)
+
+            if not serializer.is_valid():
+                return api_error(
+                    "Invalid request data",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
+
+            user = serializer.validated_data['user']
+
+            # Generate tokens
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh = RefreshToken.for_user(user)
+
+            # Get user profile data
+            profile_serializer = AdminProfileSerializer(
+                user, context={'request': request})
+
+            return api_ok(
+                "Admin login successful",
+                data={
+                    'user': profile_serializer.data,
+                    'tokens': {
+                        'access': str(refresh.access_token),
+                        'refresh': str(refresh),
+                        'expires_in': 3600  # 1 hour in seconds
+                    }
+                }
+            )
+
+        except Exception as e:
+            return api_error(
+                "Login failed",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminProfileView(AuthMixin, APIView):
+    """
+    GET: Get admin profile
+    PATCH: Update admin profile
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """Get admin profile"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            serializer = AdminProfileSerializer(
+                request.user, context={'request': request})
+
+            return api_ok(
+                "Profile retrieved successfully",
+                data=serializer.data
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to retrieve profile",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+    def patch(self, request):
+        """Update admin profile"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            # Get or create profile
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user)
+
+            # Update allowed fields
+            if 'name' in request.data:
+                profile.name = request.data['name']
+
+            if 'dob' in request.data:
+                profile.dob = request.data['dob']
+
+            if 'address' in request.data:
+                profile.address = request.data['address']
+
+            if 'profile_pic' in request.FILES:
+                profile.profile_pic = request.FILES['profile_pic']
+
+            profile.save()
+
+            # Return updated profile
+            serializer = AdminProfileSerializer(
+                request.user, context={'request': request})
+
+            return api_ok(
+                "Profile updated successfully",
+                data=serializer.data
+            )
+
+        except Exception as e:
+            return api_error(
+                "Failed to update profile",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminLogoutView(AuthMixin, APIView):
+    """
+    POST: Admin logout (blacklist refresh token)
+    """
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        """Admin logout"""
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return api_error(
+                    "Admin access required",
+                    status_code=403,
+                    code="FORBIDDEN"
+                )
+
+            # Get refresh token from request
+            refresh_token = request.data.get('refresh_token')
+
+            if not refresh_token:
+                return api_error(
+                    "Refresh token is required",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details={'field': 'refresh_token'}
+                )
+
+            try:
+                # Blacklist the refresh token
+                from rest_framework_simplejwt.tokens import RefreshToken
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+
+                return api_ok(
+                    "Logout successful",
+                    data={'message': 'Admin logged out successfully'}
+                )
+
+            except Exception as token_error:
+                return api_error(
+                    "Invalid or expired token",
+                    status_code=400,
+                    code="INVALID_TOKEN",
+                    details={'message': str(token_error)}
+                )
+
+        except Exception as e:
+            return api_error(
+                "Logout failed",
+                status_code=500,
+                code="SERVER_ERROR",
+                details={'message': str(e)}
+            )
+
+
+class AdminTokenRefreshView(APIView):
+    """
+    POST: Refresh admin access token
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        """Refresh access token"""
+        try:
+            refresh_token = request.data.get('refresh_token')
+
+            if not refresh_token:
+                return api_error(
+                    "Refresh token is required",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details={'field': 'refresh_token'}
+                )
+
+            try:
+                from rest_framework_simplejwt.tokens import RefreshToken
+                token = RefreshToken(refresh_token)
+
+                # Get user from token
+                user_id = token.payload.get('user_id')
+                user = User.objects.get(id=user_id)
+
+                # Verify user is still admin
+                if not user.is_staff:
+                    return api_error(
+                        "Admin access required",
+                        status_code=403,
+                        code="FORBIDDEN"
+                    )
+
+                # Generate new access token
+                new_access = str(token.access_token)
+
+                return api_ok(
+                    "Token refreshed successfully",
+                    data={
+                        'access': new_access,
+                        'expires_in': 3600  # 1 hour
+                    }
+                )
+
+            except Exception as token_error:
+                return api_error(
+                    "Invalid or expired refresh token",
+                    status_code=401,
+                    code="INVALID_TOKEN",
+                    details={'message': str(token_error)}
+                )
+
+        except User.DoesNotExist:
+            return api_error(
+                "User not found",
+                status_code=404,
+                code="USER_NOT_FOUND"
+            )
+        except Exception as e:
+            return api_error(
+                "Token refresh failed",
                 status_code=500,
                 code="SERVER_ERROR",
                 details={'message': str(e)}

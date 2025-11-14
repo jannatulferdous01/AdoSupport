@@ -15,7 +15,7 @@ from .views import (
     OrderListView, OrderDetailView,
     ProductReviewListView, ReviewDetailView,
     AdminProductListView, AdminProductDetailView,
-    AdminOrderListView, AdminOrderDetailView, AdminStatisticsView
+    AdminOrderListView, AdminOrderDetailView, AdminStatisticsView, AdminLoginView, AdminProfileView, AdminLogoutView, AdminTokenRefreshView
 )
 
 urlpatterns = [
@@ -23,6 +23,13 @@ urlpatterns = [
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("register/", RegisterUserView.as_view(), name="user-registration"),
     path("login/", LoginUserView.as_view(), name="user-login"),
+
+    # ========================== Admin Authentication ==========================
+    path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
+    path("admin/logout/", AdminLogoutView.as_view(), name="admin-logout"),
+    path("admin/profile/", AdminProfileView.as_view(), name="admin-profile"),
+    path("admin/token/refresh/", AdminTokenRefreshView.as_view(),
+         name="admin-token-refresh"),
 
     # ========================== User Profile ==========================
     path("profile/", UserProfileView.as_view(), name="user-profile"),

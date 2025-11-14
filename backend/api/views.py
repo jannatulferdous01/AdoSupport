@@ -1511,13 +1511,15 @@ class ProductListView(APIView):
 
             return api_ok(
                 "Products retrieved successfully",
-                data=serializer.data,
-                meta={
-                    'total_count': total_count,
-                    'current_page': page,
-                    'total_pages': total_pages,
-                    'has_next': page < total_pages,
-                    'has_previous': page > 1
+                data={
+                    'products': serializer.data,
+                    'meta': {
+                        'total_count': total_count,
+                        'current_page': page,
+                        'total_pages': total_pages,
+                        'has_next': page < total_pages,
+                        'has_previous': page > 1
+                    }
                 }
             )
 
@@ -1860,13 +1862,15 @@ class OrderListView(AuthMixin, APIView):
 
             return api_ok(
                 "Orders retrieved successfully",
-                data=serializer.data,
-                meta={
-                    'total_count': total_count,
-                    'current_page': page,
-                    'total_pages': total_pages,
-                    'has_next': page < total_pages,
-                    'has_previous': page > 1
+                data={
+                    'orders': serializer.data,
+                    'meta': {
+                        'total_count': total_count,
+                        'current_page': page,
+                        'total_pages': total_pages,
+                        'has_next': page < total_pages,
+                        'has_previous': page > 1
+                    }
                 }
             )
 
@@ -2080,15 +2084,17 @@ class ProductReviewListView(APIView):
 
             return api_ok(
                 "Reviews retrieved successfully",
-                data=serializer.data,
-                meta={
-                    'total_count': total_count,
-                    'average_rating': round(avg_rating, 1),
-                    'rating_distribution': rating_distribution,
-                    'current_page': page,
-                    'total_pages': total_pages,
-                    'has_next': page < total_pages,
-                    'has_previous': page > 1
+                data={
+                    'reviews': serializer.data,
+                    'meta': {
+                        'total_count': total_count,
+                        'average_rating': round(avg_rating, 1),
+                        'rating_distribution': rating_distribution,
+                        'current_page': page,
+                        'total_pages': total_pages,
+                        'has_next': page < total_pages,
+                        'has_previous': page > 1
+                    }
                 }
             )
 
@@ -2312,13 +2318,15 @@ class AdminProductListView(AuthMixin, APIView):
 
             return api_ok(
                 "Products retrieved successfully",
-                data=serializer.data,
-                meta={
-                    'total_count': total_count,
-                    'current_page': page,
-                    'total_pages': total_pages,
-                    'has_next': page < total_pages,
-                    'has_previous': page > 1
+                data={
+                    'products': serializer.data,
+                    'meta': {
+                        'total_count': total_count,
+                        'current_page': page,
+                        'total_pages': total_pages,
+                        'has_next': page < total_pages,
+                        'has_previous': page > 1
+                    }
                 }
             )
 
@@ -2598,7 +2606,7 @@ class AdminProductDetailView(AuthMixin, APIView):
                     "Admin access required",
                     status_code=403,
                     code="FORBIDDEN"
-                )
+                               )
 
             product = Product.objects.get(id=product_id)
             product.delete()
@@ -2681,14 +2689,16 @@ class AdminOrderListView(AuthMixin, APIView):
 
             return api_ok(
                 "Orders retrieved successfully",
-                data=serializer.data,
-                meta={
-                    'total_count': total_count,
-                    'total_revenue': float(total_revenue),
-                    'current_page': page,
-                    'total_pages': total_pages,
-                    'has_next': page < total_pages,
-                    'has_previous': page > 1
+                data={
+                    'orders': serializer.data,
+                    'meta': {
+                        'total_count': total_count,
+                        'total_revenue': float(total_revenue),
+                        'current_page': page,
+                        'total_pages': total_pages,
+                        'has_next': page < total_pages,
+                        'has_previous': page > 1
+                    }
                 }
             )
 

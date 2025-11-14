@@ -2,9 +2,11 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
+from django.db.models import Sum, Count, Avg
 from .models import (
     User, UserProfile, ChatHistory, ChatSession, ChatMessage,
-    Post, PostImage, PostReaction, SavedPost, Comment, CommentLike, PostReport
+    Post, PostImage, PostReaction, SavedPost, Comment, CommentLike, PostReport,
+    Category, Product, ProductImage, Cart, CartItem, Order, OrderItem, Review
 )
 
 # ================================ USER MANAGEMENT ================================
@@ -410,3 +412,443 @@ class PostReportAdmin(admin.ModelAdmin):
     def mark_as_dismissed(self, request, queryset):
         queryset.update(status='dismissed')
         self.message_user(request, f"{queryset.count()} reports dismissed.")
+
+
+# ================================ STORE - PRODUCTS ================================
+
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    extra = 1
+    readonly_fields = ("image_preview", "uploaded_at")
+    fields = ("image", "image_preview", "uploaded_at")
+
+    @admin.display(description="Preview")
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="100" height="100" style="object-fit: cover;" />', obj.image.url)
+        return "No Image"
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "slug", "products_count", "image_preview", "created_at")
+    search_fields = ("name", "description")
+    list_filter = ("created_at",)
+    ordering = ("name",)
+    readonly_fields = ("created_at", "products_count", "image_preview_large")
+    prepopulated_fields = {"slug": ("name",)}
+
+    fieldsets = (
+        ('Category Information', {
+            'fields': ('name', 'slug', 'description')
+        }),
+        ('Image', {
+            'fields': ('image', 'image_preview_large')
+        }),
+        ('Statistics', {
+            'fields': ('products_count', 'created_at')
+        }),
+    )
+
+    @admin.display(description="Preview")
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="50" height="50" style="object-fit: cover; border-radius: 8px;" />', obj.image.url)
+        return "No Image"
+
+    @admin.display(description="Image")
+    def image_preview_large(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="300" style="max-width: 100%; border-radius: 8px;" />', obj.image.url)
+        return "No Image"
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "category_link", "price_display", 
+                    "stock_display", "rating_display", "badges_display", "created_at")
+    search_fields = ("name", "description", "tags")
+    list_filter = ("category", "is_new", "is_bestseller", "in_stock", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at", "rating", "review_count", "total_sold", "stats_detail")
+    inlines = [ProductImageInline]
+    
+    fieldsets = (
+        ('Product Information', {
+            'fields': ('name', 'description', 'category')
+        }),
+        ('Pricing', {
+            'fields': ('price', 'discount_price')
+        }),
+        ('Details', {
+            'fields': ('tags', 'features', 'benefits')
+        }),
+        ('Inventory', {
+            'fields': ('stock_quantity', 'in_stock')
+        }),
+        ('Badges', {
+            'fields': ('is_new', 'is_bestseller')
+        }),
+        ('Statistics', {
+            'fields': ('rating', 'review_count', 'total_sold', 'stats_detail')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description="Category")
+    def category_link(self, obj):
+        url = reverse("admin:api_category_change", args=[obj.category.id])
+        return format_html('<a href="{}">{}</a>', url, obj.category.name)
+
+    @admin.display(description="Price")
+    def price_display(self, obj):
+        if obj.discount_price:
+            return format_html(
+                '<span style="text-decoration: line-through; color: #999;">${}</span> '
+                '<span style="color: #d63031; font-weight: bold;">${}</span>',
+                obj.price, obj.discount_price
+            )
+        return f"${obj.price}"
+
+    @admin.display(description="Stock")
+    def stock_display(self, obj):
+        if obj.in_stock:
+            if obj.stock_quantity > 50:
+                color = "#00b894"  # Green
+                status = "In Stock"
+            elif obj.stock_quantity > 10:
+                color = "#fdcb6e"  # Yellow
+                status = "Low Stock"
+            else:
+                color = "#ff7675"  # Red
+                status = "Very Low"
+            return format_html(
+                '<span style="color: {}; font-weight: bold;">{} ({})</span>',
+                color, status, obj.stock_quantity
+            )
+        return format_html('<span style="color: #d63031; font-weight: bold;">Out of Stock</span>')
+
+    @admin.display(description="Rating")
+    def rating_display(self, obj):
+        rating = obj.rating
+        stars = "⭐" * int(rating)
+        return f"{stars} {rating}/5 ({obj.review_count} reviews)"
+
+    @admin.display(description="Badges")
+    def badges_display(self, obj):
+        badges = []
+        if obj.is_new:
+            badges.append('<span style="background: #0984e3; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px;">NEW</span>')
+        if obj.is_bestseller:
+            badges.append('<span style="background: #fdcb6e; color: #2d3436; padding: 2px 8px; border-radius: 4px; font-size: 11px;">BESTSELLER</span>')
+        return format_html(" ".join(badges)) if badges else "-"
+
+    @admin.display(description="Detailed Statistics")
+    def stats_detail(self, obj):
+        return format_html(
+            '<strong>Average Rating:</strong> {}/5 | '
+            '<strong>Total Reviews:</strong> {} | '
+            '<strong>Total Sold:</strong> {} | '
+            '<strong>Current Stock:</strong> {}',
+            obj.rating, obj.review_count, obj.total_sold, obj.stock_quantity
+        )
+
+    actions = ['mark_as_new', 'mark_as_bestseller', 'mark_out_of_stock', 'mark_in_stock']
+
+    @admin.action(description='Mark as NEW')
+    def mark_as_new(self, request, queryset):
+        queryset.update(is_new=True)
+        self.message_user(request, f"{queryset.count()} products marked as NEW.")
+
+    @admin.action(description='Mark as BESTSELLER')
+    def mark_as_bestseller(self, request, queryset):
+        queryset.update(is_bestseller=True)
+        self.message_user(request, f"{queryset.count()} products marked as BESTSELLER.")
+
+    @admin.action(description='Mark as Out of Stock')
+    def mark_out_of_stock(self, request, queryset):
+        queryset.update(in_stock=False)
+        self.message_user(request, f"{queryset.count()} products marked as out of stock.")
+
+    @admin.action(description='Mark as In Stock')
+    def mark_in_stock(self, request, queryset):
+        queryset.update(in_stock=True)
+        self.message_user(request, f"{queryset.count()} products marked as in stock.")
+
+
+@admin.register(ProductImage)
+class ProductImageAdmin(admin.ModelAdmin):
+    list_display = ("id", "product_link", "image_preview", "uploaded_at")
+    search_fields = ("product__name",)
+    list_filter = ("uploaded_at",)
+    ordering = ("-uploaded_at",)
+    readonly_fields = ("uploaded_at", "image_preview_large")
+
+    @admin.display(description="Product")
+    def product_link(self, obj):
+        url = reverse("admin:api_product_change", args=[obj.product.id])
+        return format_html('<a href="{}">{}</a>', url, obj.product.name)
+
+    @admin.display(description="Preview")
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="50" height="50" style="object-fit: cover;" />', obj.image.url)
+        return "No Image"
+
+    @admin.display(description="Image")
+    def image_preview_large(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="300" style="max-width: 100%;" />', obj.image.url)
+        return "No Image"
+
+
+# ================================ STORE - CART ================================
+
+class CartItemInline(admin.TabularInline):
+    model = CartItem
+    extra = 0
+    readonly_fields = ("product_link", "subtotal", "added_at")
+    fields = ("product_link", "quantity", "subtotal", "added_at")
+
+    @admin.display(description="Product")
+    def product_link(self, obj):
+        url = reverse("admin:api_product_change", args=[obj.product.id])
+        return format_html('<a href="{}">{}</a>', url, obj.product.name)
+
+
+@admin.register(Cart)
+class CartAdmin(admin.ModelAdmin):
+    list_display = ("id", "user_link", "items_count", "subtotal_display", 
+                    "total_display", "created_at", "updated_at")
+    search_fields = ("user__email", "user__username")
+    list_filter = ("created_at", "updated_at")
+    ordering = ("-updated_at",)
+    readonly_fields = ("created_at", "updated_at", "items_count", 
+                       "subtotal", "tax", "shipping", "total")
+    inlines = [CartItemInline]
+
+    fieldsets = (
+        ('Cart Information', {
+            'fields': ('user',)
+        }),
+        ('Pricing', {
+            'fields': ('subtotal', 'tax', 'shipping', 'total', 'items_count')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description="User")
+    def user_link(self, obj):
+        url = reverse("admin:api_user_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.email)
+
+    @admin.display(description="Subtotal")
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal}"
+
+    @admin.display(description="Total")
+    def total_display(self, obj):
+        return format_html('<strong>${}</strong>', obj.total)
+
+
+@admin.register(CartItem)
+class CartItemAdmin(admin.ModelAdmin):
+    list_display = ("id", "cart_user_link", "product_link", "quantity", "subtotal_display", "added_at")
+    search_fields = ("cart__user__email", "product__name")
+    list_filter = ("added_at",)
+    ordering = ("-added_at",)
+    readonly_fields = ("added_at", "subtotal")
+
+    @admin.display(description="User")
+    def cart_user_link(self, obj):
+        url = reverse("admin:api_user_change", args=[obj.cart.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.cart.user.email)
+
+    @admin.display(description="Product")
+    def product_link(self, obj):
+        url = reverse("admin:api_product_change", args=[obj.product.id])
+        return format_html('<a href="{}">{}</a>', url, obj.product.name)
+
+    @admin.display(description="Subtotal")
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal}"
+
+
+# ================================ STORE - ORDERS ================================
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 0
+    readonly_fields = ("product_link", "product_name", "product_image_preview", "quantity", "price", "subtotal")
+    fields = ("product_link", "product_name", "product_image_preview", "quantity", "price", "subtotal")
+
+    @admin.display(description="Product")
+    def product_link(self, obj):
+        if obj.product:
+            url = reverse("admin:api_product_change", args=[obj.product.id])
+            return format_html('<a href="{}">{}</a>', url, obj.product.name)
+        return obj.product_name
+
+    @admin.display(description="Image")
+    def product_image_preview(self, obj):
+        if obj.product_image:
+            return format_html('<img src="{}" width="50" height="50" style="object-fit: cover;" />', obj.product_image)
+        return "No Image"
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ("order_number", "user_link", "status_display", "items_count", 
+                    "total_display", "payment_method", "created_at")
+    search_fields = ("order_number", "user__email", "user__username", "tracking_number")
+    list_filter = ("status", "payment_method", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("order_number", "created_at", "updated_at", "items_count")
+    inlines = [OrderItemInline]
+
+    fieldsets = (
+        ('Order Information', {
+            'fields': ('order_number', 'user', 'status', 'items_count')
+        }),
+        ('Shipping Address', {
+            'fields': (
+                'shipping_full_name', 
+                'shipping_address_line1', 
+                'shipping_address_line2',
+                'shipping_city', 
+                'shipping_state', 
+                'shipping_zipcode', 
+                'shipping_country',
+                'shipping_phone'
+            )
+        }),
+        ('Payment & Pricing', {
+            'fields': ('payment_method', 'subtotal', 'tax', 'shipping_cost', 'total')
+        }),
+        ('Tracking', {
+            'fields': ('tracking_number',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at', 'delivered_at')
+        }),
+    )
+
+    @admin.display(description="User")
+    def user_link(self, obj):
+        url = reverse("admin:api_user_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.email)
+
+    @admin.display(description="Status")
+    def status_display(self, obj):
+        colors = {
+            'pending': '#fdcb6e',
+            'processing': '#74b9ff',
+            'shipped': '#a29bfe',
+            'delivered': '#00b894',
+            'cancelled': '#ff7675'
+        }
+        color = colors.get(obj.status, '#dfe6e9')
+        return format_html(
+            '<span style="background: {}; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;">{}</span>',
+            color, obj.get_status_display()
+        )
+
+    @admin.display(description="Total")
+    def total_display(self, obj):
+        return format_html('<strong>${}</strong>', obj.total)
+
+    actions = ['mark_as_processing', 'mark_as_shipped', 'mark_as_delivered', 'mark_as_cancelled']
+
+    @admin.action(description='Mark as Processing')
+    def mark_as_processing(self, request, queryset):
+        queryset.update(status='processing')
+        self.message_user(request, f"{queryset.count()} orders marked as processing.")
+
+    @admin.action(description='Mark as Shipped')
+    def mark_as_shipped(self, request, queryset):
+        queryset.update(status='shipped')
+        self.message_user(request, f"{queryset.count()} orders marked as shipped.")
+
+    @admin.action(description='Mark as Delivered')
+    def mark_as_delivered(self, request, queryset):
+        from django.utils import timezone
+        queryset.update(status='delivered', delivered_at=timezone.now())
+        self.message_user(request, f"{queryset.count()} orders marked as delivered.")
+
+    @admin.action(description='Mark as Cancelled')
+    def mark_as_cancelled(self, request, queryset):
+        queryset.update(status='cancelled')
+        self.message_user(request, f"{queryset.count()} orders cancelled.")
+
+
+@admin.register(OrderItem)
+class OrderItemAdmin(admin.ModelAdmin):
+    list_display = ("id", "order_link", "product_name", "quantity", "price_display", "subtotal_display")
+    search_fields = ("order__order_number", "product_name", "product__name")
+    list_filter = ("order__created_at",)
+    ordering = ("-order__created_at",)
+    readonly_fields = ("subtotal",)
+
+    @admin.display(description="Order")
+    def order_link(self, obj):
+        url = reverse("admin:api_order_change", args=[obj.order.id])
+        return format_html('<a href="{}">{}</a>', url, obj.order.order_number)
+
+    @admin.display(description="Price")
+    def price_display(self, obj):
+        return f"${obj.price}"
+
+    @admin.display(description="Subtotal")
+    def subtotal_display(self, obj):
+        return f"${obj.subtotal}"
+
+
+# ================================ STORE - REVIEWS ================================
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ("id", "product_link", "user_link", "rating_display", 
+                    "title", "created_at")
+    search_fields = ("product__name", "user__email", "title", "comment")
+    list_filter = ("rating", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at")
+
+    fieldsets = (
+        ('Review Information', {
+            'fields': ('product', 'user', 'rating')
+        }),
+        ('Content', {
+            'fields': ('title', 'comment')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    @admin.display(description="Product")
+    def product_link(self, obj):
+        url = reverse("admin:api_product_change", args=[obj.product.id])
+        return format_html('<a href="{}">{}</a>', url, obj.product.name)
+
+    @admin.display(description="User")
+    def user_link(self, obj):
+        url = reverse("admin:api_user_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.email)
+
+    @admin.display(description="Rating")
+    def rating_display(self, obj):
+        stars = "⭐" * obj.rating
+        return f"{stars} ({obj.rating}/5)"
+
+    actions = ['delete_selected_reviews']
+
+    @admin.action(description='Delete selected reviews')
+    def delete_selected_reviews(self, request, queryset):
+        count = queryset.count()
+        queryset.delete()
+        self.message_user(request, f"{count} reviews deleted.")

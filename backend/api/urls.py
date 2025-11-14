@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import (
 )
 from .views import (
     RegisterUserView, LoginUserView, AdolescentView, ParentView,
-    UserProfileView, ChangePasswordView, Chatbot, ChatSessionListView,
+    UserProfileView, ProfileAvatarView, ChangePasswordView, Chatbot, ChatSessionListView,
     ChatSessionDeleteView, ChatSessionMessageView, PostDetailView,
     PostReactionView, PostListCreateView, CommentCreateView,
     CommentDeleteView, CommentLikeView, CommentReplyView,
@@ -33,7 +33,10 @@ urlpatterns = [
 
     # ========================== User Profile ==========================
     path("profile/", UserProfileView.as_view(), name="user-profile"),
-    path("change-password/", ChangePasswordView.as_view(), name="change-password"),
+    path("profile/avatar/", ProfileAvatarView.as_view(), name="profile-avatar"),
+    path("profile/password/change/", ChangePasswordView.as_view(), name="change-password"),
+    # Legacy endpoint support
+    path("change-password/", ChangePasswordView.as_view(), name="change-password-legacy"),
 
     # ========================== RBA ==========================
     path("adolescent/", AdolescentView.as_view(), name='adolescent'),

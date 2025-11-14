@@ -98,7 +98,7 @@ class LoginUserView(APIView):
         if not email or not password:
             return Response({"error": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = authenticate(request, email=email, password=password)
+        user = authenticate(username=email, password=password)
         if user is None:
             return Response({"error": "Invalid credentials. Please try again."}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -121,10 +121,46 @@ class LoginUserView(APIView):
 
 # ============================================ user profile =========================================
 class UserProfileView(AuthMixin, APIView):
+    """
+    GET: Retrieve user profile
+    PATCH: Update user profile
+    """
     serializer_class = UserProfileSerializer
     parser_classes = [MultiPartParser, FormParser]
 
+    def get(self, request):
+        """Get user profile with complete information"""
+        try:
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user)
+            
+            data = {
+                "id": request.user.id,
+                "email": request.user.email,
+                "username": request.user.username,
+                "role": request.user.role,
+                "name": profile.name if profile.name else request.user.username,
+                "dob": profile.dob.isoformat() if profile.dob else None,
+                "address": profile.address,
+                "profile_pic": request.build_absolute_uri(profile.profile_pic.url) if profile.profile_pic else None,
+                "created_at": profile.created_at.isoformat(),
+                "joined_date": request.user.date_joined.isoformat(),
+                "is_active": request.user.is_active if hasattr(request.user, 'is_active') else True
+            }
+            
+            return Response(success_response(
+                message="Profile retrieved successfully",
+                data=data
+            ), status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(error_response(
+                message=f"Failed to retrieve profile: {str(e)}",
+                error_type="SERVER_ERROR",
+                status_code=500
+            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     def patch(self, request):
+        """Update user profile information"""
         try:
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
@@ -132,59 +168,193 @@ class UserProfileView(AuthMixin, APIView):
                 profile, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
+                
+                # Return complete profile data
+                data = {
+                    "id": request.user.id,
+                    "email": request.user.email,
+                    "username": request.user.username,
+                    "role": request.user.role,
+                    "name": profile.name if profile.name else request.user.username,
+                    "dob": profile.dob.isoformat() if profile.dob else None,
+                    "address": profile.address,
+                    "profile_pic": request.build_absolute_uri(profile.profile_pic.url) if profile.profile_pic else None,
+                    "updated_at": timezone.now().isoformat()
+                }
+                
                 return Response(success_response(
-                    message="Profile updated successfully.",
-                    data=serializer.data
+                    message="Profile updated successfully",
+                    data=data
                 ), status=status.HTTP_200_OK)
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        except NotAuthenticated:
-            return Response({"error": "Authentication credentials were not provided."}, status=status.HTTP_401_UNAUTHORIZED)
+            
+            return Response(error_response(
+                message="Invalid request data",
+                error_type="VALIDATION_ERROR",
+                status_code=400,
+                details=serializer.errors
+            ), status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"error": "An unexpected error occurred: " + str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(error_response(
+                message=f"Failed to update profile: {str(e)}",
+                error_type="SERVER_ERROR",
+                status_code=500
+            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # ==================================== Change Password =========================================
 
 
 class ChangePasswordView(AuthMixin, APIView):
+    """
+    POST: Change user password
+    """
 
-    def patch(self, request):
-        email = request.data.get("email")
+    def post(self, request):
+        """Change user password with validation"""
         current_password = request.data.get("current_password")
         new_password = request.data.get("new_password")
+        confirm_password = request.data.get("confirm_password")
 
-        if not email or not current_password or not new_password:
+        # Validate required fields
+        if not current_password or not new_password or not confirm_password:
             return Response(error_response(
-                message="Email, current password, and new password are required.",
-                error_type="ValidationError",
+                message="Current password, new password, and confirmation are required",
+                error_type="VALIDATION_ERROR",
                 status_code=400
             ), status=status.HTTP_400_BAD_REQUEST)
 
-        user = authenticate(request, email=email, password=current_password)
+        # Validate password match
+        if new_password != confirm_password:
+            return Response(error_response(
+                message="New password and confirmation do not match",
+                error_type="PASSWORD_MISMATCH",
+                status_code=400,
+                details={"field": "confirm_password"}
+            ), status=status.HTTP_400_BAD_REQUEST)
+
+        # Authenticate with current password
+        user = authenticate(username=request.user.email, password=current_password)
         if user is None:
             return Response(error_response(
-                message="Invalid email or current password.",
-                error_type="AuthenticationError",
-                status_code=401
-            ), status=status.HTTP_401_UNAUTHORIZED)
+                message="Current password is incorrect",
+                error_type="INVALID_PASSWORD",
+                status_code=400,
+                details={"field": "current_password"}
+            ), status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate password strength
         if len(new_password) < 8:
             return Response(error_response(
-                message="New password must be at least 8 characters long.",
-                error_type="ValidationError",
-                status_code=400
+                message="New password must be at least 8 characters long",
+                error_type="INVALID_PASSWORD_FORMAT",
+                status_code=400,
+                details={"field": "new_password"}
             ), status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user.set_password(new_password)
             user.save()
+            
             return Response(success_response(
-                message="Password updated successfully.",
-                data=None
+                message="Password changed successfully",
+                data={
+                    "user_id": user.id,
+                    "updated_at": timezone.now().isoformat()
+                }
             ), status=status.HTTP_200_OK)
         except Exception as e:
             return Response(error_response(
-                message=f"An unexpected error occurred: {str(e)}",
-                error_type="ServerError",
+                message=f"Failed to change password: {str(e)}",
+                error_type="SERVER_ERROR",
+                status_code=500
+            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ==================================== Profile Avatar Management =========================================
+
+class ProfileAvatarView(AuthMixin, APIView):
+    """
+    PATCH: Update profile avatar
+    DELETE: Remove profile avatar
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def patch(self, request):
+        """Update user's profile avatar"""
+        try:
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user)
+            
+            avatar = request.FILES.get('avatar')
+            if not avatar:
+                return Response(error_response(
+                    message="Avatar file is required",
+                    error_type="VALIDATION_ERROR",
+                    status_code=400,
+                    details={"field": "avatar"}
+                ), status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate file size (5MB max)
+            if avatar.size > 5 * 1024 * 1024:
+                return Response(error_response(
+                    message="Avatar file size exceeds maximum allowed size of 5MB",
+                    error_type="FILE_TOO_LARGE",
+                    status_code=400
+                ), status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate file type
+            allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif']
+            if avatar.content_type not in allowed_types:
+                return Response(error_response(
+                    message="Invalid file type. Only JPG, JPEG, PNG, and GIF are allowed",
+                    error_type="INVALID_FILE_TYPE",
+                    status_code=400
+                ), status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update avatar
+            profile.profile_pic = avatar
+            profile.save()
+            
+            return Response(success_response(
+                message="Avatar updated successfully",
+                data={
+                    "id": request.user.id,
+                    "avatar": request.build_absolute_uri(profile.profile_pic.url) if profile.profile_pic else None,
+                    "updated_at": timezone.now().isoformat()
+                }
+            ), status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(error_response(
+                message=f"Failed to update avatar: {str(e)}",
+                error_type="SERVER_ERROR",
+                status_code=500
+            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request):
+        """Remove user's profile avatar"""
+        try:
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user)
+            
+            # Delete the avatar file if it exists
+            if profile.profile_pic:
+                profile.profile_pic.delete(save=False)
+                profile.profile_pic = None
+                profile.save()
+            
+            return Response(success_response(
+                message="Avatar removed successfully",
+                data={
+                    "id": request.user.id,
+                    "avatar": None,
+                    "updated_at": timezone.now().isoformat()
+                }
+            ), status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(error_response(
+                message=f"Failed to remove avatar: {str(e)}",
+                error_type="SERVER_ERROR",
                 status_code=500
             ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

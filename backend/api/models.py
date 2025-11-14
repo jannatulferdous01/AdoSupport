@@ -47,6 +47,7 @@ class CustomUserManager(BaseUserManager):
 # ------------------------------------------- USER MODEL ----------------------------------------------------
 
 
+
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICE = [
         ("adolescent", "Adolescent"),

@@ -45,7 +45,13 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'rest_framework_simplejwt.token_blacklist',
-    'api',
+    # 'api',
+    'core',
+    'authentication',
+    'community',
+    'store',
+    'chatbot',
+    'admin_panel',
     'testing',
 ]
 
@@ -132,7 +138,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-AUTH_USER_MODEL = 'api.User'
+AUTH_USER_MODEL = 'authentication.User'
 
 CORS_ALLOW_ALL_ORIGIN = True
 

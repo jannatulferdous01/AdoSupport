@@ -54,26 +54,6 @@ class ChatSessionSerializers(serializers.ModelSerializer):
         ]
 
 
-class UserMiniamlSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'role']
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        try:
-            profile = instance.profile
-            data['name'] = f"{profile.first_name} {profile.last_name}".strip(
-            ) or instance.username
-            data['avatar'] = profile.profile_picture.url if profile.profile_picture else None
-        except:
-            data['name'] = instance.username
-            data['avatar'] = None
-
-        data.pop('username', None)
-        return data
-
-
 class UserMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -745,7 +725,7 @@ class AdminLoginSerializer(serializers.Serializer):
 
         # Authenticate user
         from django.contrib.auth import authenticate
-        user = authenticate(email=email, password=password)
+        user = authenticate(username=email, password=password)
 
         if not user:
             raise serializers.ValidationError({

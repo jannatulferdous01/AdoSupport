@@ -15,7 +15,7 @@ from .views import (
     OrderListView, OrderDetailView,
     ProductReviewListView, ReviewDetailView,
     AdminProductListView, AdminProductDetailView,
-    AdminOrderListView, AdminOrderDetailView, AdminStatisticsView, AdminLoginView, AdminProfileView, AdminLogoutView, AdminTokenRefreshView
+    AdminOrderListView, AdminOrderDetailView, AdminStatisticsView, AdminLoginView, AdminProfileView, AdminLogoutView, AdminTokenRefreshView, UploadAvatarView, DeleteAvatarView
 )
 
 urlpatterns = [
@@ -34,6 +34,8 @@ urlpatterns = [
     # ========================== User Profile ==========================
     path("profile/", UserProfileView.as_view(), name="user-profile"),
     path("profile/avatar/", ProfileAvatarView.as_view(), name="profile-avatar"),
+    path("profile/avatar/upload/", UploadAvatarView.as_view(), name="upload-avatar"),
+    path("profile/avatar/delete/", DeleteAvatarView.as_view(), name="delete-avatar"),
     path("profile/password/change/", ChangePasswordView.as_view(), name="change-password"),
     # Legacy endpoint support
     path("change-password/", ChangePasswordView.as_view(), name="change-password-legacy"),

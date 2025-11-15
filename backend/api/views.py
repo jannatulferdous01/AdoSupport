@@ -35,6 +35,11 @@ from django.utils.html import escape
 import json
 from django.db.models import Count, OuterRef, Subquery, Q, F, Value, TextField, CharField
 from django.db import models
+from .cloudinary_utils import (
+    upload_image_to_cloudinary,
+    delete_image_from_cloudinary,
+    validate_image_file
+)
 
 from .utils import success_response, error_response, api_error, api_ok
 from .models import User, UserProfile, ChatHistory, ChatSession, ChatMessage, Comment, CommentLike, Post, PostReaction, PostReport, PostImage, SavedPost, Category, Product, ProductImage, Cart, CartItem, Order, OrderItem, Review
@@ -102,6 +107,10 @@ class LoginUserView(APIView):
         if user is None:
             return Response({"error": "Invalid credentials. Please try again."}, status=status.HTTP_401_UNAUTHORIZED)
 
+        # Check if user account is active
+        if not user.is_active:
+            return Response({"error": "Account is inactive. Please contact support."}, status=status.HTTP_401_UNAUTHORIZED)
+
         try:
             refresh = RefreshToken.for_user(user)
             return Response(success_response(
@@ -121,84 +130,161 @@ class LoginUserView(APIView):
 
 # ============================================ user profile =========================================
 class UserProfileView(AuthMixin, APIView):
-    """
-    GET: Retrieve user profile
-    PATCH: Update user profile
-    """
-    serializer_class = UserProfileSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    """User profile management with Cloudinary"""
+    parser_classes = (MultiPartParser, FormParser)
 
     def get(self, request):
-        """Get user profile with complete information"""
+        """Get user profile"""
         try:
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
-            
-            data = {
-                "id": request.user.id,
-                "email": request.user.email,
-                "username": request.user.username,
-                "role": request.user.role,
-                "name": profile.name if profile.name else request.user.username,
-                "dob": profile.dob.isoformat() if profile.dob else None,
-                "address": profile.address,
-                "profile_pic": request.build_absolute_uri(profile.profile_pic.url) if profile.profile_pic else None,
-                "created_at": profile.created_at.isoformat(),
-                "joined_date": request.user.date_joined.isoformat(),
-                "is_active": request.user.is_active if hasattr(request.user, 'is_active') else True
-            }
-            
-            return Response(success_response(
-                message="Profile retrieved successfully",
-                data=data
-            ), status=status.HTTP_200_OK)
+            serializer = UserProfileSerializer(profile)
+            return success_response("Profile retrieved successfully", serializer.data)
         except Exception as e:
-            return Response(error_response(
-                message=f"Failed to retrieve profile: {str(e)}",
-                error_type="SERVER_ERROR",
-                status_code=500
-            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(f"Failed to retrieve profile: {str(e)}", status_code=500)
 
     def patch(self, request):
-        """Update user profile information"""
+        """Update profile with Cloudinary upload"""
         try:
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
+
+            # Handle profile picture upload
+            if 'profile_pic' in request.FILES:
+                image_file = request.FILES['profile_pic']
+
+                # Validate image
+                is_valid, error_msg = validate_image_file(image_file)
+                if not is_valid:
+                    return error_response(error_msg, status_code=400)
+
+                # Delete old image from Cloudinary if exists
+                if profile.profile_pic:
+                    try:
+                        old_public_id = profile.profile_pic.public_id
+                        delete_image_from_cloudinary(old_public_id)
+                    except:
+                        pass
+
+                # Upload new image (CloudinaryField handles this automatically)
+                profile.profile_pic = image_file
+
+            # Update other fields
             serializer = UserProfileSerializer(
                 profile, data=request.data, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-                
-                # Return complete profile data
-                data = {
-                    "id": request.user.id,
-                    "email": request.user.email,
-                    "username": request.user.username,
-                    "role": request.user.role,
-                    "name": profile.name if profile.name else request.user.username,
-                    "dob": profile.dob.isoformat() if profile.dob else None,
-                    "address": profile.address,
-                    "profile_pic": request.build_absolute_uri(profile.profile_pic.url) if profile.profile_pic else None,
-                    "updated_at": timezone.now().isoformat()
-                }
-                
-                return Response(success_response(
-                    message="Profile updated successfully",
-                    data=data
-                ), status=status.HTTP_200_OK)
-            
-            return Response(error_response(
-                message="Invalid request data",
-                error_type="VALIDATION_ERROR",
-                status_code=400,
-                details=serializer.errors
-            ), status=status.HTTP_400_BAD_REQUEST)
+
+            if not serializer.is_valid():
+                return error_response(
+                    "Validation failed",
+                    status_code=400,
+                    details=serializer.errors
+                )
+
+            serializer.save()
+
+            return success_response("Profile updated successfully", serializer.data)
+
         except Exception as e:
-            return Response(error_response(
-                message=f"Failed to update profile: {str(e)}",
-                error_type="SERVER_ERROR",
+            return error_response(
+                f"Failed to update profile: {str(e)}",
                 status_code=500
-            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            )
+
+
+class UploadAvatarView(AuthMixin, APIView):
+    """Upload avatar to Cloudinary"""
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        """Upload new avatar"""
+        try:
+            if 'avatar' not in request.FILES:
+                return error_response(
+                    "No image file provided",
+                    status_code=400
+                )
+
+            image_file = request.FILES['avatar']
+
+            # Validate image
+            is_valid, error_msg = validate_image_file(image_file)
+            if not is_valid:
+                return error_response(error_msg, status_code=400)
+
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user)
+
+            # Delete old avatar if exists
+            if profile.profile_pic:
+                try:
+                    old_public_id = profile.profile_pic.public_id
+                    delete_image_from_cloudinary(old_public_id)
+                except:
+                    pass
+
+            # Upload new avatar (CloudinaryField handles automatically)
+            profile.profile_pic = image_file
+            profile.save()
+
+            return success_response(
+                "Avatar uploaded successfully",
+                {
+                    'avatar_url': profile.profile_pic.url if profile.profile_pic else None,
+                    'thumbnail_url': profile.profile_pic.build_url(width=150, height=150, crop='fill') if profile.profile_pic else None
+                }
+            )
+
+        except Exception as e:
+            return error_response(
+                f"Failed to upload avatar: {str(e)}",
+                status_code=500
+            )
+
+
+class DeleteAvatarView(AuthMixin, APIView):
+    """Delete avatar from Cloudinary"""
+
+    def delete(self, request):
+        """Delete user avatar"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+
+            if not profile.profile_pic:
+                return error_response(
+                    "No avatar to delete",
+                    status_code=404
+                )
+
+            # Delete from Cloudinary
+            try:
+                public_id = profile.profile_pic.public_id
+                delete_result = delete_image_from_cloudinary(public_id)
+
+                if not delete_result['success']:
+                    return error_response(
+                        "Failed to delete from Cloudinary",
+                        status_code=500,
+                        details=delete_result
+                    )
+            except Exception as e:
+                return error_response(f"Cloudinary deletion failed: {str(e)}", status_code=500)
+
+            # Remove from database
+            profile.profile_pic = None
+            profile.save()
+
+            return success_response("Avatar deleted successfully")
+
+        except UserProfile.DoesNotExist:
+            return error_response(
+                "Profile not found",
+                status_code=404
+            )
+        except Exception as e:
+            return error_response(
+                f"Failed to delete avatar: {str(e)}",
+                status_code=500
+            )
 
 # ==================================== Change Password =========================================
 
@@ -232,7 +318,8 @@ class ChangePasswordView(AuthMixin, APIView):
             ), status=status.HTTP_400_BAD_REQUEST)
 
         # Authenticate with current password
-        user = authenticate(username=request.user.email, password=current_password)
+        user = authenticate(username=request.user.email,
+                            password=current_password)
         if user is None:
             return Response(error_response(
                 message="Current password is incorrect",
@@ -253,7 +340,7 @@ class ChangePasswordView(AuthMixin, APIView):
         try:
             user.set_password(new_password)
             user.save()
-            
+
             return Response(success_response(
                 message="Password changed successfully",
                 data={
@@ -283,7 +370,7 @@ class ProfileAvatarView(AuthMixin, APIView):
         try:
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
-            
+
             avatar = request.FILES.get('avatar')
             if not avatar:
                 return Response(error_response(
@@ -292,7 +379,7 @@ class ProfileAvatarView(AuthMixin, APIView):
                     status_code=400,
                     details={"field": "avatar"}
                 ), status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Validate file size (5MB max)
             if avatar.size > 5 * 1024 * 1024:
                 return Response(error_response(
@@ -300,20 +387,21 @@ class ProfileAvatarView(AuthMixin, APIView):
                     error_type="FILE_TOO_LARGE",
                     status_code=400
                 ), status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Validate file type
-            allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif']
+            allowed_types = ['image/jpeg',
+                             'image/jpg', 'image/png', 'image/gif']
             if avatar.content_type not in allowed_types:
                 return Response(error_response(
                     message="Invalid file type. Only JPG, JPEG, PNG, and GIF are allowed",
                     error_type="INVALID_FILE_TYPE",
                     status_code=400
                 ), status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Update avatar
             profile.profile_pic = avatar
             profile.save()
-            
+
             return Response(success_response(
                 message="Avatar updated successfully",
                 data={
@@ -322,26 +410,26 @@ class ProfileAvatarView(AuthMixin, APIView):
                     "updated_at": timezone.now().isoformat()
                 }
             ), status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             return Response(error_response(
                 message=f"Failed to update avatar: {str(e)}",
                 error_type="SERVER_ERROR",
                 status_code=500
             ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     def delete(self, request):
         """Remove user's profile avatar"""
         try:
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
-            
+
             # Delete the avatar file if it exists
             if profile.profile_pic:
                 profile.profile_pic.delete(save=False)
                 profile.profile_pic = None
                 profile.save()
-            
+
             return Response(success_response(
                 message="Avatar removed successfully",
                 data={
@@ -350,7 +438,7 @@ class ProfileAvatarView(AuthMixin, APIView):
                     "updated_at": timezone.now().isoformat()
                 }
             ), status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             return Response(error_response(
                 message=f"Failed to remove avatar: {str(e)}",
@@ -795,112 +883,36 @@ class PostListCreateView(AuthMixin, APIView):
             )
 
     def post(self, request):
-        """Create a new post"""
+        """Create new post with images"""
         try:
-            # Validate required fields
-            title = request.data.get('title', '').strip()
-            content = request.data.get('content', '').strip()
-            category = request.data.get('category', '').strip()
-
-            if not all([title, content, category]):
-                missing_fields = []
-                if not title:
-                    missing_fields.append('title')
-                if not content:
-                    missing_fields.append('content')
-                if not category:
-                    missing_fields.append('category')
-
-                return api_error(
-                    "Missing required fields",
-                    status_code=400,
-                    code="INVALID_REQUEST",
-                    details={'missing_fields': missing_fields}
-                )
-
-            # Validate category
-            valid_categories = ['questions',
-                                'experiences', 'resources', 'general']
-            if category not in valid_categories:
-                return api_error(
-                    "Invalid post category",
-                    status_code=400,
-                    code="INVALID_CATEGORY",
-                    details={
-                        'field': 'category',
-                        'provided': category,
-                        'allowed': valid_categories
-                    }
-                )
-
-            # Process tags
-            tags = request.data.get('tags', '')
-            if isinstance(tags, str):
-                tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
-
-            # Get images
-            images = request.FILES.getlist('images', [])
-
-            # Validate number of images
-            if len(images) > 5:
-                return api_error(
-                    "Too many images",
-                    status_code=400,
-                    code="TOO_MANY_FILES",
-                    details={'max_files': 5, 'provided': len(images)}
-                )
-
-            # Validate each image
-            for image in images:
-                # Check file size (5MB)
-                if image.size > 5 * 1024 * 1024:
-                    return api_error(
-                        f"Image file too large: {image.name}",
-                        status_code=400,
-                        code="FILE_TOO_LARGE",
-                        details={'max_size': '5MB', 'file': image.name}
-                    )
-
-                # Check file type
-                ext = image.name.split('.')[-1].lower()
-                if ext not in ['jpg', 'jpeg', 'png', 'gif']:
-                    return api_error(
-                        f"Invalid file type: {ext}",
-                        status_code=400,
-                        code="INVALID_FILE_TYPE",
-                        details={'allowed': ['jpg', 'jpeg',
-                                             'png', 'gif'], 'provided': ext}
-                    )
-
             # Create post
-            post = Post.objects.create(
-                title=title,
-                content=content,
-                category=category,
-                tags=tags,
-                author=request.user
-            )
+            serializer = PostCreateUpdateSerializer(
+                data=request.data, context={'request': request})
 
-            # Create images
-            for image in images:
-                PostImage.objects.create(post=post, image=image)
+            if not serializer.is_valid():
+                return api_error("Validation failed", status_code=400, details=serializer.errors)
 
-            return api_ok(
-                "Post created successfully",
-                data={
-                    'id': str(post.id),
-                    'created_at': post.created_at.isoformat()
-                },
-                status_code=status.HTTP_201_CREATED
-            )
+            post = serializer.save(author=request.user)
+
+            # Handle multiple images
+            images = request.FILES.getlist('images')
+            if images:
+                for image_file in images:
+                    # Validate each image
+                    is_valid, error_msg = validate_image_file(image_file)
+                    if not is_valid:
+                        continue  # Skip invalid images
+
+                    # Create PostImage (CloudinaryField handles upload)
+                    PostImage.objects.create(post=post, image=image_file)
+
+            # Return post with images
+            response_serializer = PostCreateUpdateSerializer(
+                post, context={'request': request})
+            return api_ok("Post created successfully", response_serializer.data, status_code=status.HTTP_201_CREATED)
 
         except Exception as e:
-            return api_error(
-                "Failed to create post",
-                status_code=500,
-                code="SERVER_ERROR",
-                details={'message': str(e)}
-            )
+            return api_error(f"Failed to create post: {str(e)}", status_code=500)
 
 
 class PostDetailView(AuthMixin, APIView):

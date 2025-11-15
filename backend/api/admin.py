@@ -154,8 +154,8 @@ class ChatMessageAdmin(admin.ModelAdmin):
 class PostImageInline(admin.TabularInline):
     model = PostImage
     extra = 1
-    readonly_fields = ("image_preview", "uploaded_at")
-    fields = ("image", "image_preview", "uploaded_at")
+    readonly_fields = ("image_preview", "created_at")
+    fields = ("image", "image_preview", "created_at")
 
     @admin.display(description="Preview")
     def image_preview(self, obj):
@@ -224,11 +224,11 @@ class PostAdmin(admin.ModelAdmin):
 
 @admin.register(PostImage)
 class PostImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "post_link", "image_preview", "uploaded_at")
+    list_display = ("id", "post_link", "image_preview", "created_at")
     search_fields = ("post__title",)
-    list_filter = ("uploaded_at",)
-    ordering = ("-uploaded_at",)
-    readonly_fields = ("uploaded_at", "image_preview_large")
+    list_filter = ("created_at",)
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "image_preview_large")
 
     @admin.display(description="Post")
     def post_link(self, obj):
@@ -419,8 +419,8 @@ class PostReportAdmin(admin.ModelAdmin):
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
-    readonly_fields = ("image_preview", "uploaded_at")
-    fields = ("image", "image_preview", "uploaded_at")
+    readonly_fields = ("image_preview", "created_at")
+    fields = ("image", "image_preview", "created_at")
 
     @admin.display(description="Preview")
     def image_preview(self, obj):
@@ -580,11 +580,11 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(ProductImage)
 class ProductImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "product_link", "image_preview", "uploaded_at")
+    list_display = ("id", "product_link", "image_preview", "created_at")
     search_fields = ("product__name",)
-    list_filter = ("uploaded_at",)
-    ordering = ("-uploaded_at",)
-    readonly_fields = ("uploaded_at", "image_preview_large")
+    list_filter = ("created_at",)
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "image_preview_large")
 
     @admin.display(description="Product")
     def product_link(self, obj):

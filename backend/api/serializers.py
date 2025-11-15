@@ -18,15 +18,30 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    """User profile serializer with Cloudinary URL"""
+    profile_pic_url = serializers.SerializerMethodField()
+    profile_pic_thumbnail = serializers.SerializerMethodField()
+
     class Meta:
         model = UserProfile
-        fields = "__all__"
-        read_only_fields = ["id", "user", "created_at"]
+        fields = ['name', 'bio', 'dob', 'address', 'profile_pic',
+                  'profile_pic_url', 'profile_pic_thumbnail',
+                  'interests', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at',
+                            'profile_pic_url', 'profile_pic_thumbnail']
 
-        def update(self, instance, validated_data):
-            validated_data.pop('email', None)
-            validated_data.pop('gender', None)
-            return super().update(instance, validated_data)
+    def get_profile_pic_url(self, obj):
+        """Get full size Cloudinary URL"""
+        if obj.profile_pic:
+            return obj.profile_pic.url
+        return None
+
+    def get_profile_pic_thumbnail(self, obj):
+        """Get thumbnail Cloudinary URL"""
+        if obj.profile_pic:
+            # Generate thumbnail on-the-fly
+            return obj.profile_pic.build_url(width=150, height=150, crop='fill')
+        return None
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
@@ -78,18 +93,26 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 
 class PostImageSerializer(serializers.ModelSerializer):
+    """Post image serializer with Cloudinary URL"""
+    image_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PostImage
-        fields = ['id', 'image', 'uploaded_at']
+        fields = ['id', 'image', 'image_url', 'thumbnail_url', 'created_at']
+        read_only_fields = ['id', 'created_at', 'image_url', 'thumbnail_url']
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # Return full URL for image
-        request = self.context.get('request')
-        if request and instance.image:
-            data['image'] = request.build_absolute_uri(instance.image.url)
-        return data
+    def get_image_url(self, obj):
+        """Get full size image URL"""
+        if obj.image:
+            return obj.image.url
+        return None
+
+    def get_thumbnail_url(self, obj):
+        """Get thumbnail URL"""
+        if obj.image:
+            return obj.image.build_url(width=300, height=300, crop='fill')
+        return None
 
 
 class CommentLikeSerializer(serializers.ModelSerializer):
@@ -323,20 +346,25 @@ class CategorySerializer(serializers.ModelSerializer):
 # ==================== Product Serializers ====================
 
 class ProductImageSerializer(serializers.ModelSerializer):
-    """Product image serializer"""
-    image = serializers.SerializerMethodField()
+    """Product image serializer with Cloudinary URL"""
+    image_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductImage
-        fields = ['id', 'image', 'uploaded_at']
+        fields = ['id', 'image', 'image_url', 'thumbnail_url', 'created_at']
+        read_only_fields = ['id', 'created_at', 'image_url', 'thumbnail_url']
 
-    def get_image(self, obj):
-        """Get full image URL"""
-        request = self.context.get('request')
-        if obj.image and hasattr(obj.image, 'url'):
-            if request:
-                return request.build_absolute_uri(obj.image.url)
+    def get_image_url(self, obj):
+        """Get full size image URL"""
+        if obj.image:
             return obj.image.url
+        return None
+
+    def get_thumbnail_url(self, obj):
+        """Get thumbnail URL"""
+        if obj.image:
+            return obj.image.build_url(width=400, height=400, crop='pad', background='white')
         return None
 
 
@@ -652,21 +680,24 @@ class ReviewSerializer(serializers.ModelSerializer):
     def get_user(self, obj):
         """Get user info"""
         request = self.context.get('request')
-        profile = obj.user.profile
-        avatar_url = None
+        try:
+            profile = obj.user.profile
+            avatar_url = None
 
-        if profile.profile_picture:
-            if request:
-                avatar_url = request.build_absolute_uri(
-                    profile.profile_picture.url)
-            else:
-                avatar_url = profile.profile_picture.url
+            if profile.profile_pic:
+                avatar_url = profile.profile_pic.url
 
-        return {
-            'id': str(obj.user.id),
-            'name': obj.user.username,
-            'avatar': avatar_url
-        }
+            return {
+                'id': str(obj.user.id),
+                'name': obj.user.username,
+                'avatar': avatar_url
+            }
+        except:
+            return {
+                'id': str(obj.user.id),
+                'name': obj.user.username,
+                'avatar': None
+            }
 
 
 class CreateReviewSerializer(serializers.Serializer):
@@ -749,9 +780,10 @@ class AdminProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'username', 'role', 'is_staff', 
+        fields = ['id', 'email', 'username', 'role', 'is_staff',
                   'is_superuser', 'date_joined', 'profile', 'permissions']
-        read_only_fields = ['id', 'email', 'date_joined', 'is_staff', 'is_superuser']
+        read_only_fields = ['id', 'email',
+                            'date_joined', 'is_staff', 'is_superuser']
 
     def get_profile(self, obj):
         """Get user profile info"""
@@ -781,4 +813,3 @@ class AdminProfileSerializer(serializers.ModelSerializer):
             'can_view_reports': obj.is_staff or obj.is_superuser,
             'is_superuser': obj.is_superuser
         }
-

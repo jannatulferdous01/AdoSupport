@@ -14,6 +14,7 @@ from django.utils import timezone
 import uuid
 from decimal import Decimal
 from django.core.validators import MinValueValidator, MaxValueValidator
+from cloudinary.models import CloudinaryField
 
 
 class CustomUserManager(BaseUserManager):
@@ -45,7 +46,6 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(email, username, password, **extra_fields)
 
 # ------------------------------------------- USER MODEL ----------------------------------------------------
-
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -81,22 +81,42 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class UserProfile(models.Model):
+    """User profile with Cloudinary storage"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="profile")
-    name = models.CharField(max_length=50, null=False, blank=False)
-    dob = models.DateField(null=True, blank=True)
-    address = models.TextField(null=True, blank=True)
-    profile_pic = models.ImageField(
-        upload_to="profile_pic/", null=True, blank=True)
+        User, on_delete=models.CASCADE, related_name='profile')
+
+    name = models.CharField(max_length=255, blank=True, null=True)
+    bio = models.TextField(blank=True, null=True)
+    dob = models.DateField(blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+
+    profile_pic = CloudinaryField(
+        'image',
+        folder='adosupport/profiles',
+        blank=True,
+        null=True,
+        transformation={
+            'width': 400,
+            'height': 400,
+            'crop': 'fill',
+            'quality': 'auto',
+            'gravity': 'face'
+        }
+    )
+
+    interests = models.JSONField(default=list, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_profiles'
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
 
     def __str__(self):
-        return f"{self.user.username}'s Profile"
-
-
-@login_required
-def get_username(request):
-    return JsonResponse({"username": request.user.username})
+        return f"{self.user.email}'s profile"
 
 # ----------------------------------- Chatbot ---------------------------------------
 
@@ -212,24 +232,30 @@ def post_image_upload_path(instance, filename):
 
 
 class PostImage(models.Model):
+    """Post images with Cloudinary storage"""
     post = models.ForeignKey(
-        Post, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(
-        upload_to=post_image_upload_path,
-        validators=[FileExtensionValidator(
-            allowed_extensions=['jpg', 'jpeg', 'png'])]
+        'Post', on_delete=models.CASCADE, related_name='images')
+
+    image = CloudinaryField(
+        'image',
+        folder='adosupport/posts',
+        transformation={
+            'width': 1200,
+            'height': 900,
+            'crop': 'limit',
+            'quality': 'auto'
+        }
     )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['uploaded_at']
+        db_table = 'post_images'
+        verbose_name = 'Post Image'
+        verbose_name_plural = 'Post Images'
 
     def __str__(self):
-        return f"Image for {self.post.title}"
-
-    def clean(self):
-        if self.image.size > 5 * 1024 * 1024:
-            raise ValidationError("Image file size cannot exceed 5MB")
+        return f"Image for {self.post.content[:30]}"
 
 
 class PostReaction(models.Model):
@@ -351,6 +377,7 @@ class PostReport(models.Model):
 
 # ====================================== Store ==========================================
 
+
 class Category(models.Model):
     """Product category model"""
 
@@ -459,19 +486,29 @@ class Product(models.Model):
 
 
 class ProductImage(models.Model):
-    """Product image model"""
-
+    """Product images with Cloudinary storage"""
     product = models.ForeignKey(
-        Product, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(
-        upload_to=product_image_upload_path,
-        validators=[FileExtensionValidator(
-            allowed_extensions=['jpg', 'jpeg', 'png', 'webp'])]
+        'Product', on_delete=models.CASCADE, related_name='images')
+
+    # CHANGE: Replace ImageField with CloudinaryField
+    image = CloudinaryField(
+        'image',
+        folder='adosupport/products',
+        transformation={
+            'width': 800,
+            'height': 800,
+            'crop': 'pad',
+            'quality': 'auto',
+            'background': 'white'
+        }
     )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['uploaded_at']
+        db_table = 'product_images'
+        verbose_name = 'Product Image'
+        verbose_name_plural = 'Product Images'
 
     def __str__(self):
         return f"Image for {self.product.name}"

@@ -885,7 +885,7 @@ class PostListCreateView(AuthMixin, APIView):
     def post(self, request):
         """Create new post with images"""
         try:
-            # Create post
+            # Create post (images are handled by serializer.create())
             serializer = PostCreateUpdateSerializer(
                 data=request.data, context={'request': request})
 
@@ -894,20 +894,8 @@ class PostListCreateView(AuthMixin, APIView):
 
             post = serializer.save(author=request.user)
 
-            # Handle multiple images
-            images = request.FILES.getlist('images')
-            if images:
-                for image_file in images:
-                    # Validate each image
-                    is_valid, error_msg = validate_image_file(image_file)
-                    if not is_valid:
-                        continue  # Skip invalid images
-
-                    # Create PostImage (CloudinaryField handles upload)
-                    PostImage.objects.create(post=post, image=image_file)
-
-            # Return post with images
-            response_serializer = PostCreateUpdateSerializer(
+            # Return post with images using PostListSerializer for proper serialization
+            response_serializer = PostListSerializer(
                 post, context={'request': request})
             return api_ok("Post created successfully", response_serializer.data, status_code=status.HTTP_201_CREATED)
 

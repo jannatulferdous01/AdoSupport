@@ -139,9 +139,9 @@ class UserProfileView(AuthMixin, APIView):
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
             serializer = UserProfileSerializer(profile)
-            return success_response("Profile retrieved successfully", serializer.data)
+            return api_ok("Profile retrieved successfully", serializer.data)
         except Exception as e:
-            return error_response(f"Failed to retrieve profile: {str(e)}", status_code=500)
+            return api_error(f"Failed to retrieve profile: {str(e)}", status_code=500)
 
     def patch(self, request):
         """Update profile with Cloudinary upload"""
@@ -174,7 +174,7 @@ class UserProfileView(AuthMixin, APIView):
                 profile, data=request.data, partial=True)
 
             if not serializer.is_valid():
-                return error_response(
+                return api_error(
                     "Validation failed",
                     status_code=400,
                     details=serializer.errors
@@ -182,10 +182,10 @@ class UserProfileView(AuthMixin, APIView):
 
             serializer.save()
 
-            return success_response("Profile updated successfully", serializer.data)
+            return api_ok("Profile updated successfully", serializer.data)
 
         except Exception as e:
-            return error_response(
+            return api_error(
                 f"Failed to update profile: {str(e)}",
                 status_code=500
             )
@@ -199,7 +199,7 @@ class UploadAvatarView(AuthMixin, APIView):
         """Upload new avatar"""
         try:
             if 'avatar' not in request.FILES:
-                return error_response(
+                return api_error(
                     "No image file provided",
                     status_code=400
                 )
@@ -209,7 +209,7 @@ class UploadAvatarView(AuthMixin, APIView):
             # Validate image
             is_valid, error_msg = validate_image_file(image_file)
             if not is_valid:
-                return error_response(error_msg, status_code=400)
+                return api_error(error_msg, status_code=400)
 
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
@@ -226,7 +226,7 @@ class UploadAvatarView(AuthMixin, APIView):
             profile.profile_pic = image_file
             profile.save()
 
-            return success_response(
+            return api_ok(
                 "Avatar uploaded successfully",
                 {
                     'avatar_url': profile.profile_pic.url if profile.profile_pic else None,
@@ -235,7 +235,7 @@ class UploadAvatarView(AuthMixin, APIView):
             )
 
         except Exception as e:
-            return error_response(
+            return api_error(
                 f"Failed to upload avatar: {str(e)}",
                 status_code=500
             )
@@ -250,7 +250,7 @@ class DeleteAvatarView(AuthMixin, APIView):
             profile = UserProfile.objects.get(user=request.user)
 
             if not profile.profile_pic:
-                return error_response(
+                return api_error(
                     "No avatar to delete",
                     status_code=404
                 )
@@ -261,27 +261,27 @@ class DeleteAvatarView(AuthMixin, APIView):
                 delete_result = delete_image_from_cloudinary(public_id)
 
                 if not delete_result['success']:
-                    return error_response(
+                    return api_error(
                         "Failed to delete from Cloudinary",
                         status_code=500,
                         details=delete_result
                     )
             except Exception as e:
-                return error_response(f"Cloudinary deletion failed: {str(e)}", status_code=500)
+                return api_error(f"Cloudinary deletion failed: {str(e)}", status_code=500)
 
             # Remove from database
             profile.profile_pic = None
             profile.save()
 
-            return success_response("Avatar deleted successfully")
+            return api_ok("Avatar deleted successfully")
 
         except UserProfile.DoesNotExist:
-            return error_response(
+            return api_error(
                 "Profile not found",
                 status_code=404
             )
         except Exception as e:
-            return error_response(
+            return api_error(
                 f"Failed to delete avatar: {str(e)}",
                 status_code=500
             )
@@ -302,58 +302,58 @@ class ChangePasswordView(AuthMixin, APIView):
 
         # Validate required fields
         if not current_password or not new_password or not confirm_password:
-            return Response(error_response(
-                message="Current password, new password, and confirmation are required",
-                error_type="VALIDATION_ERROR",
+            return api_error(
+                "Current password, new password, and confirmation are required",
+                code="VALIDATION_ERROR",
                 status_code=400
-            ), status=status.HTTP_400_BAD_REQUEST)
+            )
 
         # Validate password match
         if new_password != confirm_password:
-            return Response(error_response(
-                message="New password and confirmation do not match",
-                error_type="PASSWORD_MISMATCH",
+            return api_error(
+                "New password and confirmation do not match",
+                code="PASSWORD_MISMATCH",
                 status_code=400,
                 details={"field": "confirm_password"}
-            ), status=status.HTTP_400_BAD_REQUEST)
+            )
 
         # Authenticate with current password
         user = authenticate(username=request.user.email,
                             password=current_password)
         if user is None:
-            return Response(error_response(
-                message="Current password is incorrect",
-                error_type="INVALID_PASSWORD",
+            return api_error(
+                "Current password is incorrect",
+                code="INVALID_PASSWORD",
                 status_code=400,
                 details={"field": "current_password"}
-            ), status=status.HTTP_400_BAD_REQUEST)
+            )
 
         # Validate password strength
         if len(new_password) < 8:
-            return Response(error_response(
-                message="New password must be at least 8 characters long",
-                error_type="INVALID_PASSWORD_FORMAT",
+            return api_error(
+                "New password must be at least 8 characters long",
+                code="INVALID_PASSWORD_FORMAT",
                 status_code=400,
                 details={"field": "new_password"}
-            ), status=status.HTTP_400_BAD_REQUEST)
+            )
 
         try:
             user.set_password(new_password)
             user.save()
 
-            return Response(success_response(
-                message="Password changed successfully",
-                data={
+            return api_ok(
+                "Password changed successfully",
+                {
                     "user_id": user.id,
                     "updated_at": timezone.now().isoformat()
                 }
-            ), status=status.HTTP_200_OK)
+            )
         except Exception as e:
-            return Response(error_response(
-                message=f"Failed to change password: {str(e)}",
-                error_type="SERVER_ERROR",
+            return api_error(
+                f"Failed to change password: {str(e)}",
+                code="SERVER_ERROR",
                 status_code=500
-            ), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            )
 
 
 # ==================================== Profile Avatar Management =========================================

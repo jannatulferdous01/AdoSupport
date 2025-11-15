@@ -35,13 +35,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             return obj.profile_pic.url
         return None
 
-    def get_profile_pic_thumbnail(self, obj):
-        """Get thumbnail Cloudinary URL"""
-        if obj.profile_pic:
-            # Generate thumbnail on-the-fly
-            return obj.profile_pic.build_url(width=150, height=150, crop='fill')
-        return None
-
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:

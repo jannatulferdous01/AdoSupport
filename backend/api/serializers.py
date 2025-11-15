@@ -24,11 +24,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserProfile
-        fields = ['name', 'bio', 'dob', 'address', 'profile_pic',
-                  'profile_pic_url', 'profile_pic_thumbnail',
-                  'interests', 'created_at', 'updated_at']
+        fields = ['name', 'bio', 'dob', 'address',
+                  'profile_pic_url', 'interests', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at',
-                            'profile_pic_url', 'profile_pic_thumbnail']
+                            'profile_pic_url']
 
     def get_profile_pic_url(self, obj):
         """Get full size Cloudinary URL"""
@@ -95,23 +94,16 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 class PostImageSerializer(serializers.ModelSerializer):
     """Post image serializer with Cloudinary URL"""
     image_url = serializers.SerializerMethodField()
-    thumbnail_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PostImage
-        fields = ['id', 'image', 'image_url', 'thumbnail_url', 'created_at']
-        read_only_fields = ['id', 'created_at', 'image_url', 'thumbnail_url']
+        fields = ['id', 'image_url', 'created_at']
+        read_only_fields = ['id', 'created_at', 'image_url']
 
     def get_image_url(self, obj):
         """Get full size image URL"""
         if obj.image:
             return obj.image.url
-        return None
-
-    def get_thumbnail_url(self, obj):
-        """Get thumbnail URL"""
-        if obj.image:
-            return obj.image.build_url(width=300, height=300, crop='fill')
         return None
 
 
@@ -348,23 +340,16 @@ class CategorySerializer(serializers.ModelSerializer):
 class ProductImageSerializer(serializers.ModelSerializer):
     """Product image serializer with Cloudinary URL"""
     image_url = serializers.SerializerMethodField()
-    thumbnail_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductImage
-        fields = ['id', 'image', 'image_url', 'thumbnail_url', 'created_at']
-        read_only_fields = ['id', 'created_at', 'image_url', 'thumbnail_url']
+        fields = ['id', 'image_url', 'created_at']
+        read_only_fields = ['id', 'created_at', 'image_url']
 
     def get_image_url(self, obj):
         """Get full size image URL"""
         if obj.image:
             return obj.image.url
-        return None
-
-    def get_thumbnail_url(self, obj):
-        """Get thumbnail URL"""
-        if obj.image:
-            return obj.image.build_url(width=400, height=400, crop='pad', background='white')
         return None
 
 

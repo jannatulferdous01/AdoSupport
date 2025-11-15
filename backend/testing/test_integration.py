@@ -61,9 +61,9 @@ class IntegrationFlowTest(APITestCase):
         mock_candidate.finish_reason = 1
         mock_chunk.candidates = [mock_candidate]
 
-        mock_model = Mock()
-        mock_model.generate_content.return_value = [mock_chunk]
-        mock_model.return_value = mock_model
+        mock_model_instance = Mock()
+        mock_model_instance.generate_content.return_value = [mock_chunk]
+        mock_model.return_value = mock_model_instance
 
         chatbot_query = {
             "query": "tell me about the adolescence"
@@ -458,14 +458,16 @@ class StoreIntegrationTest(APITestCase):
 
         # 6. Create order (checkout)
         order_data = {
-            'shipping_full_name': 'John Doe',
-            'shipping_address_line1': '123 Main St',
-            'shipping_city': 'San Francisco',
-            'shipping_state': 'CA',
-            'shipping_zipcode': '94102',
-            'shipping_country': 'USA',
-            'shipping_phone': '+1234567890',
-            'payment_method': 'card'
+            'shipping_address': {
+                'full_name': 'John Doe',
+                'address_line1': '123 Main St',
+                'city': 'San Francisco',
+                'state': 'CA',
+                'zipcode': '94102',
+                'country': 'USA',
+                'phone': '+1234567890'
+            },
+            'payment_method': 'credit_card'
         }
 
         order_res = self.client.post(
@@ -610,7 +612,7 @@ class StoreIntegrationTest(APITestCase):
         self.assertGreater(len(search_data['products']), 0)
 
         # Filter by category
-        filter_url = f'{self.products_url}?category={self.category.id}'
+        filter_url = f'{self.products_url}?category={self.category.slug}'
         filter_res = self.client.get(filter_url)
         self.assertEqual(filter_res.status_code, 200)
         filter_data = filter_res.json()['data']

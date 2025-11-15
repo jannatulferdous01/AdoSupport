@@ -329,8 +329,8 @@ class CategoryAPITest(APITestCase):
         )
 
     def test_get_categories(self):
-        """Test GET /api/categories/"""
-        url = '/api/categories/'
+        """Test GET /api/store/categories/"""
+        url = '/api/store/categories/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -360,8 +360,8 @@ class ProductAPITest(APITestCase):
         )
 
     def test_get_products(self):
-        """Test GET /api/products/"""
-        url = '/api/products/'
+        """Test GET /api/store/products/"""
+        url = '/api/store/products/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -369,8 +369,8 @@ class ProductAPITest(APITestCase):
         self.assertEqual(response.data['data'][0]['name'], "Test Product")
 
     def test_get_product_detail(self):
-        """Test GET /api/products/<id>/"""
-        url = f'/api/products/{self.product.id}/'
+        """Test GET /api/store/products/<id>/"""
+        url = f'/api/store/products/{self.product.id}/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -379,7 +379,7 @@ class ProductAPITest(APITestCase):
 
     def test_filter_products_by_category(self):
         """Test filtering products by category"""
-        url = '/api/products/?category=books'
+        url = '/api/store/products/?category=books'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -387,7 +387,7 @@ class ProductAPITest(APITestCase):
 
     def test_search_products(self):
         """Test searching products"""
-        url = '/api/products/?search=Test'
+        url = '/api/store/products/?search=Test'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -421,16 +421,16 @@ class CartAPITest(APITestCase):
         )
 
     def test_get_cart(self):
-        """Test GET /api/cart/"""
-        url = '/api/cart/'
+        """Test GET /api/store/cart/"""
+        url = '/api/store/cart/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('items', response.data['data'])
 
     def test_add_to_cart(self):
-        """Test POST /api/cart/items/"""
-        url = '/api/cart/items/'
+        """Test POST /api/store/cart/items/"""
+        url = '/api/store/cart/items/'
         data = {
             'product_id': str(self.product.id),
             'quantity': 2
@@ -442,7 +442,7 @@ class CartAPITest(APITestCase):
 
     def test_add_to_cart_insufficient_stock(self):
         """Test adding more items than available stock"""
-        url = '/api/cart/items/'
+        url = '/api/store/cart/items/'
         data = {
             'product_id': str(self.product.id),
             'quantity': 100
@@ -462,7 +462,7 @@ class CartAPITest(APITestCase):
             quantity=1
         )
 
-        url = f'/api/cart/items/{cart_item.id}/'
+        url = f'/api/store/cart/items/{cart_item.id}/'
         data = {'quantity': 3}
         response = self.client.patch(url, data, format='json')
 
@@ -479,18 +479,18 @@ class CartAPITest(APITestCase):
             quantity=1
         )
 
-        url = f'/api/cart/items/{cart_item.id}/'
+        url = f'/api/store/cart/items/{cart_item.id}/'
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(CartItem.objects.filter(id=cart_item.id).exists())
 
     def test_clear_cart(self):
-        """Test DELETE /api/cart/"""
+        """Test DELETE /api/store/cart/"""
         cart = Cart.objects.create(user=self.user)
         CartItem.objects.create(cart=cart, product=self.product, quantity=1)
 
-        url = '/api/cart/'
+        url = '/api/store/cart/'
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -552,7 +552,7 @@ class OrderAPITest(APITestCase):
         """Test creating order with empty cart"""
         Cart.objects.create(user=self.user)  # Empty cart
 
-        url = '/api/orders/'
+        url = '/api/store/orders/'
         data = {
             'shipping_address': {
                 'full_name': 'Test User',
@@ -588,7 +588,7 @@ class OrderAPITest(APITestCase):
             total=Decimal('32.50')
         )
 
-        url = '/api/orders/'
+        url = '/api/store/orders/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -612,7 +612,7 @@ class OrderAPITest(APITestCase):
             total=Decimal('32.50')
         )
 
-        url = f'/api/orders/{order.id}/'
+        url = f'/api/store/orders/{order.id}/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -682,15 +682,15 @@ class ReviewAPITest(APITestCase):
             comment="Loved it"
         )
 
-        url = f'/api/products/{self.product.id}/reviews/'
+        url = f'/api/store/products/{self.product.id}/reviews/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 1)
 
     def test_create_review(self):
-        """Test POST /api/products/<id>/reviews/"""
-        url = f'/api/products/{self.product.id}/reviews/'
+        """Test POST /api/store/products/<id>/reviews/"""
+        url = f'/api/store/products/{self.product.id}/reviews/'
         data = {
             'rating': 5,
             'title': 'Excellent product',
@@ -712,7 +712,7 @@ class ReviewAPITest(APITestCase):
             comment="Loved it"
         )
 
-        url = f'/api/products/{self.product.id}/reviews/'
+        url = f'/api/store/products/{self.product.id}/reviews/'
         data = {
             'rating': 4,
             'title': 'Another review',
@@ -723,7 +723,7 @@ class ReviewAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_update_review(self):
-        """Test PATCH /api/reviews/<id>/"""
+        """Test PATCH /api/store/reviews/<id>/"""
         review = Review.objects.create(
             product=self.product,
             user=self.user,
@@ -732,7 +732,7 @@ class ReviewAPITest(APITestCase):
             comment="Nice product"
         )
 
-        url = f'/api/reviews/{review.id}/'
+        url = f'/api/store/reviews/{review.id}/'
         data = {
             'rating': 5,
             'title': 'Excellent!',
@@ -745,7 +745,7 @@ class ReviewAPITest(APITestCase):
         self.assertEqual(review.rating, 5)
 
     def test_delete_review(self):
-        """Test DELETE /api/reviews/<id>/"""
+        """Test DELETE /api/store/reviews/<id>/"""
         review = Review.objects.create(
             product=self.product,
             user=self.user,
@@ -754,7 +754,7 @@ class ReviewAPITest(APITestCase):
             comment="Nice product"
         )
 
-        url = f'/api/reviews/{review.id}/'
+        url = f'/api/store/reviews/{review.id}/'
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -784,8 +784,8 @@ class AdminProductAPITest(APITestCase):
         )
 
     def test_admin_create_product(self):
-        """Test POST /api/admin/products/"""
-        url = '/api/admin/products/'
+        """Test POST /api/store/admin/products/"""
+        url = '/api/store/admin/products/'
         data = {
             'name': 'New Product',
             'description': 'New description',
@@ -810,7 +810,7 @@ class AdminProductAPITest(APITestCase):
         )
         self.client.force_authenticate(user=regular_user)
 
-        url = '/api/admin/products/'
+        url = '/api/store/admin/products/'
         data = {
             'name': 'New Product',
             'description': 'New description',
@@ -859,16 +859,16 @@ class AdminOrderAPITest(APITestCase):
         )
 
     def test_admin_get_all_orders(self):
-        """Test GET /api/admin/orders/"""
-        url = '/api/admin/orders/'
+        """Test GET /api/store/admin/orders/"""
+        url = '/api/store/admin/orders/'
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 1)
 
     def test_admin_update_order_status(self):
-        """Test PATCH /api/admin/orders/<id>/"""
-        url = f'/api/admin/orders/{self.order.id}/'
+        """Test PATCH /api/store/admin/orders/<id>/"""
+        url = f'/api/store/admin/orders/{self.order.id}/'
         data = {
             'status': 'processing',
             'tracking_number': 'TRACK123'
@@ -885,7 +885,7 @@ class AdminOrderAPITest(APITestCase):
         self.order.status = 'delivered'
         self.order.save()
 
-        url = f'/api/admin/orders/{self.order.id}/'
+        url = f'/api/store/admin/orders/{self.order.id}/'
         data = {'status': 'pending'}
         response = self.client.patch(url, data, format='json')
 
@@ -934,30 +934,30 @@ class StoreIntegrationTest(APITestCase):
         """Test complete flow: browse -> add to cart -> checkout -> order"""
 
         # 1. Browse products
-        response = self.client.get('/api/products/')
+        response = self.client.get('/api/store/products/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 2)
 
         # 2. View product detail
-        response = self.client.get(f'/api/products/{self.product1.id}/')
+        response = self.client.get(f'/api/store/products/{self.product1.id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['data']['name'], 'Mindfulness Guide')
 
         # 3. Add products to cart
-        response = self.client.post('/api/cart/items/', {
+        response = self.client.post('/api/store/cart/items/', {
             'product_id': str(self.product1.id),
             'quantity': 2
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        response = self.client.post('/api/cart/items/', {
+        response = self.client.post('/api/store/cart/items/', {
             'product_id': str(self.product2.id),
             'quantity': 1
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # 4. View cart
-        response = self.client.get('/api/cart/')
+        response = self.client.get('/api/store/cart/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']['items']), 2)
 
@@ -969,7 +969,7 @@ class StoreIntegrationTest(APITestCase):
         self.assertGreater(cart_total, Decimal('70.00'))
 
         # 5. Create order
-        response = self.client.post('/api/orders/', {
+        response = self.client.post('/api/store/orders/', {
             'shipping_address': {
                 'full_name': 'Test User',
                 'address_line1': '123 Main St',
@@ -985,12 +985,12 @@ class StoreIntegrationTest(APITestCase):
         order_id = response.data['data']['order_id']
 
         # 6. Verify order was created
-        response = self.client.get(f'/api/orders/{order_id}/')
+        response = self.client.get(f'/api/store/orders/{order_id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']['items']), 2)
 
         # 7. Verify cart is empty
-        response = self.client.get('/api/cart/')
+        response = self.client.get('/api/store/cart/')
         self.assertEqual(len(response.data['data']['items']), 0)
 
         # 8. Verify stock was reduced
@@ -1028,7 +1028,7 @@ class StoreIntegrationTest(APITestCase):
         )
 
         # 2. Add review
-        response = self.client.post(f'/api/products/{self.product1.id}/reviews/', {
+        response = self.client.post(f'/api/store/products/{self.product1.id}/reviews/', {
             'rating': 5,
             'title': 'Excellent book!',
             'comment': 'This book really helped me with mindfulness practices.'
@@ -1036,21 +1036,21 @@ class StoreIntegrationTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # 3. View product with review
-        response = self.client.get(f'/api/products/{self.product1.id}/')
+        response = self.client.get(f'/api/store/products/{self.product1.id}/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['data']['rating'], 5.0)
         self.assertEqual(response.data['data']['review_count'], 1)
 
         # 4. Get all reviews for product
         response = self.client.get(
-            f'/api/products/{self.product1.id}/reviews/')
+            f'/api/store/products/{self.product1.id}/reviews/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 1)
         self.assertEqual(response.data['meta']['average_rating'], 5.0)
 
         # 5. Update review
         review_id = response.data['data'][0]['id']
-        response = self.client.patch(f'/api/reviews/{review_id}/', {
+        response = self.client.patch(f'/api/store/reviews/{review_id}/', {
             'rating': 4,
             'title': 'Good book',
             'comment': 'Updated: Still good but not perfect'
@@ -1058,7 +1058,7 @@ class StoreIntegrationTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # 6. Verify updated rating
-        response = self.client.get(f'/api/products/{self.product1.id}/')
+        response = self.client.get(f'/api/store/products/{self.product1.id}/')
         self.assertEqual(response.data['data']['rating'], 4.0)
 
 
@@ -1100,7 +1100,7 @@ class StoreEdgeCaseTest(APITestCase):
         )
 
         # Simulate concurrent update
-        url = f'/api/cart/items/{cart_item.id}/'
+        url = f'/api/store/cart/items/{cart_item.id}/'
 
         # First update
         response1 = self.client.patch(url, {'quantity': 2}, format='json')
@@ -1120,7 +1120,7 @@ class StoreEdgeCaseTest(APITestCase):
         self.product.stock_quantity = 0
         self.product.save()
 
-        response = self.client.post('/api/orders/', {
+        response = self.client.post('/api/store/orders/', {
             'shipping_address': {
                 'full_name': 'Test User',
                 'address_line1': '123 Main St',
@@ -1145,7 +1145,7 @@ class StoreEdgeCaseTest(APITestCase):
 
     def test_review_without_purchase(self):
         """Test that user cannot review without purchasing"""
-        response = self.client.post(f'/api/products/{self.product.id}/reviews/', {
+        response = self.client.post(f'/api/store/products/{self.product.id}/reviews/', {
             'rating': 5,
             'title': 'Great!',
             'comment': 'Love it'
@@ -1171,7 +1171,7 @@ class StoreEdgeCaseTest(APITestCase):
     def test_product_search_with_special_characters(self):
         """Test product search handles special characters"""
         response = self.client.get(
-            '/api/products/?search=<script>alert("xss")</script>')
+            '/api/store/products/?search=<script>alert("xss")</script>')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cart_item_quantity_boundary(self):
@@ -1179,14 +1179,14 @@ class StoreEdgeCaseTest(APITestCase):
         cart = Cart.objects.create(user=self.user)
 
         # Try adding 0 quantity (should fail)
-        response = self.client.post('/api/cart/items/', {
+        response = self.client.post('/api/store/cart/items/', {
             'product_id': str(self.product.id),
             'quantity': 0
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Try adding negative quantity (should fail)
-        response = self.client.post('/api/cart/items/', {
+        response = self.client.post('/api/store/cart/items/', {
             'product_id': str(self.product.id),
             'quantity': -5
         }, format='json')
@@ -1234,7 +1234,7 @@ class StorePerformanceTest(APITestCase):
 
         # Test with pagination
         with CaptureQueriesContext(connection) as context:
-            response = self.client.get('/api/products/?limit=20&page=1')
+            response = self.client.get('/api/store/products/?limit=20&page=1')
             query_count = len(context.captured_queries)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1255,6 +1255,6 @@ class StorePerformanceTest(APITestCase):
                 quantity=1
             )
 
-        response = self.client.get('/api/cart/')
+        response = self.client.get('/api/store/cart/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']['items']), 20)

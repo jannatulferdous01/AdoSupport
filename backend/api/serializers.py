@@ -20,14 +20,12 @@ class UserSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     """User profile serializer with Cloudinary URL"""
     profile_pic_url = serializers.SerializerMethodField()
-    profile_pic_thumbnail = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
         fields = ['name', 'bio', 'dob', 'address',
                   'profile_pic_url', 'interests', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at',
-                            'profile_pic_url']
+        read_only_fields = ['created_at', 'updated_at', 'profile_pic_url']
 
     def get_profile_pic_url(self, obj):
         """Get full size Cloudinary URL"""

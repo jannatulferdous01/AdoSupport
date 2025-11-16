@@ -3192,28 +3192,32 @@ class AdminProfileView(AuthMixin, APIView):
             profile, created = UserProfile.objects.get_or_create(
                 user=request.user)
 
-            # Update allowed fields
-            if 'name' in request.data:
-                profile.name = request.data['name']
+            # Use serializer for validation
+            serializer = UserProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True,
+                context={'request': request}
+            )
 
-            if 'dob' in request.data:
-                profile.dob = request.data['dob']
+            if not serializer.is_valid():
+                return api_error(
+                    "Validation failed",
+                    status_code=400,
+                    code="INVALID_REQUEST",
+                    details=serializer.errors
+                )
 
-            if 'address' in request.data:
-                profile.address = request.data['address']
-
-            if 'profile_pic' in request.FILES:
-                profile.profile_pic = request.FILES['profile_pic']
-
-            profile.save()
+            # Save with serializer
+            serializer.save()
 
             # Return updated profile
-            serializer = AdminProfileSerializer(
+            response_serializer = AdminProfileSerializer(
                 request.user, context={'request': request})
 
             return api_ok(
                 "Profile updated successfully",
-                data=serializer.data
+                data=response_serializer.data
             )
 
         except Exception as e:

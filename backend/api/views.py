@@ -29,6 +29,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from django.http import StreamingHttpResponse
 import re
 from django.utils.html import escape
@@ -525,32 +526,174 @@ class AdolescentView(AuthMixin, APIView):
 # ==================================== chatbot =====================================
 
 
-class Chatbot(AuthMixin, APIView):
+class ChatbotView(AuthMixin, APIView):
     """
-    AI-powered chatbot for mental health support using OpenAI GPT
+    AI-powered chatbot for mental health support using Google Gemini
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Initialize OpenAI
-        openai.api_key = getattr(settings, 'OPENAI_API_KEY', None)
-        self.model = getattr(settings, 'OPENAI_MODEL', 'gpt-3.5-turbo')
+        # Configure Gemini
+        try:
+            genai.configure(api_key=settings.GOOGLE_API_KEY)
+            self.model_name = getattr(
+                settings, 'GEMINI_MODEL', 'gemini-2.0-flash')
+
+            # System instruction for mental health support
+            self.system_instruction = """You are a compassionate mental health support assistant for adolescents and their parents. 
+
+Your role is to:
+- Provide empathetic, supportive responses
+- Offer practical coping strategies for stress, anxiety, depression
+- Normalize feelings and validate emotions
+- Encourage seeking professional help when needed
+- Use age-appropriate, warm, and understanding language
+- Never provide medical diagnoses or replace professional therapy
+- Focus ONLY on mental health, emotional wellbeing, relationships, and adolescent development topics
+
+If you detect a crisis (self-harm, suicide ideation), immediately provide:
+- National Suicide Prevention Lifeline: 988 (24/7)
+- Crisis Text Line: Text HOME to 741741
+- Encourage talking to a trusted adult immediately
+
+If asked about topics outside mental health (math, science, general knowledge, etc.), politely redirect:
+"I'm specifically designed to provide mental health and emotional support. I'd be happy to discuss topics related to feelings, stress, relationships, or any challenges you're facing emotionally."
+"""
+
+            # Safety settings
+            self.safety_settings = {
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+
+            # Generation config
+            self.generation_config = {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_output_tokens": 1000,
+            }
+
+        except Exception as e:
+            print(f"Error initializing Gemini: {str(e)}")
+            self.model_name = None
+
+    def _check_topic_relevance(self, message):
+        """Check if the question is mental health related using Gemini"""
+        try:
+            # Create a simple classifier model
+            classifier = genai.GenerativeModel('gemini-2.0-flash')
+
+            prompt = f"""Analyze if this question is related to mental health, emotions, wellbeing, relationships, stress, anxiety, depression, self-esteem, bullying, coping strategies, or adolescent challenges.
+
+Question: "{message}"
+
+Respond with ONLY one word:
+- "RELEVANT" if it's about mental health, emotions, feelings, stress, anxiety, relationships, wellbeing, adolescent issues
+- "NOT_RELEVANT" if it's about math, science, history, general knowledge, technical topics, entertainment, sports, etc.
+
+Response:"""
+
+            response = classifier.generate_content(
+                prompt,
+                generation_config={"temperature": 0.1, "max_output_tokens": 10}
+            )
+
+            result = response.text.strip().upper()
+            print(
+                f"Topic classification: {result} for message: {message[:50]}...")
+
+            return "RELEVANT" in result
+
+        except Exception as e:
+            print(f"Topic check failed: {str(e)}")
+            # Default to allowing the question if check fails
+            return True
 
     def post(self, request):
         """Send message to chatbot and get response"""
         try:
-            # Support both 'query' (old) and 'message' (new) field names
-            message = request.data.get(
-                'message') or request.data.get('query', '').strip()
-            # Support both 'chat_id' (old) and 'session_id' (new) field names
-            session_id = request.data.get(
-                'session_id') or request.data.get('chat_id', None)
+            # Check if Gemini is configured
+            if not settings.GOOGLE_API_KEY:
+                return api_error(
+                    "Chatbot service not configured. Please contact administrator.",
+                    status_code=500,
+                    code="SERVER_ERROR"
+                )
+
+            message = request.data.get('message', '').strip()
+            session_id = request.data.get('session_id', None)
+            use_streaming = request.data.get('stream', False)
+
+            print(f"Debug: Received message: {message}")
+            print(f"Debug: Session ID: {session_id}")
+            print(f"Debug: Current user: {request.user}")
+            print(f"Debug: Streaming mode: {use_streaming}")
 
             if not message:
                 return api_error(
                     "Message is required",
                     status_code=400,
                     code="INVALID_REQUEST"
+                )
+
+            # Check if question is mental health related
+            is_relevant = self._check_topic_relevance(message)
+
+            if not is_relevant:
+                print(f"Off-topic question detected: {message}")
+
+                # Create session and save the off-topic message
+                if session_id:
+                    try:
+                        session = ChatSession.objects.get(
+                            id=session_id,
+                            user=request.user
+                        )
+                    except ChatSession.DoesNotExist:
+                        session = ChatSession.objects.create(user=request.user)
+                else:
+                    session = ChatSession.objects.create(user=request.user)
+
+                # Save user message
+                ChatMessage.objects.create(
+                    sessions=session,
+                    role='user',
+                    content=message
+                )
+
+                # Create redirect response
+                redirect_message = """I appreciate you reaching out! However, I'm specifically designed to provide mental health and emotional support for adolescents and parents. 
+
+Your question seems to be outside my area of expertise. I'm here to help with:
+- Feelings and emotions (anxiety, stress, sadness)
+- Relationships and social challenges
+- Mental wellbeing and self-care
+- Coping strategies and resilience
+- Adolescent development and challenges
+
+Would you like to talk about how you're feeling or any emotional challenges you're facing?"""
+
+                # Save bot response
+                bot_chat = ChatMessage.objects.create(
+                    sessions=session,
+                    role='assistant',
+                    content=redirect_message
+                )
+
+                return api_ok(
+                    "Response generated successfully",
+                    data={
+                        'session_id': str(session.id),
+                        'chat_id': str(session.id),
+                        'message': redirect_message,
+                        'is_crisis': False,
+                        'is_off_topic': True,
+                        'message_id': str(bot_chat.id),
+                        'timestamp': bot_chat.timestamps.isoformat()
+                    }
                 )
 
             # Get or create chat session
@@ -560,18 +703,13 @@ class Chatbot(AuthMixin, APIView):
                         id=session_id,
                         user=request.user
                     )
-                    print(f"Debug: Continuing existing session {session_id}")
+                    print(f"Debug: Continuing existing session {session.id}")
                 except ChatSession.DoesNotExist:
-                    session = ChatSession.objects.create(
-                        user=request.user,
-                        title="New Chat"
-                    )
-                    print(f"Debug: Created new session {session.id}")
+                    session = ChatSession.objects.create(user=request.user)
+                    print(
+                        f"Debug: Session not found, created new session {session.id}")
             else:
-                session = ChatSession.objects.create(
-                    user=request.user,
-                    title="New Chat"
-                )
+                session = ChatSession.objects.create(user=request.user)
                 print(f"Debug: Created new session {session.id}")
 
             # Save user message
@@ -580,247 +718,161 @@ class Chatbot(AuthMixin, APIView):
                 role='user',
                 content=message
             )
+            print(f"Debug: Saved user message with ID {user_chat.id}")
 
             # Get conversation history (last 10 messages for context)
             history = ChatMessage.objects.filter(
                 sessions=session
-            ).order_by('-timestamps')[:10][::-1]
+            ).order_by('-timestamps')[:10][::-1]  # Reverse to chronological
 
-            # Step 1: Check if the message is related to mental health
-            topic_check_messages = [
-                {
-                    "role": "system",
-                    "content": """You are a topic classifier. Determine if the user's message is related to mental health, emotional well-being, or adolescent support.
+            print(f"Debug: Retrieved {len(history)} messages from history")
 
-                    Mental health topics include (but not limited to):
-                    - Anxiety, depression, stress, worry, fear
-                    - Self-esteem, confidence, self-worth
-                    - Relationships, friendships, family issues
-                    - School/academic stress, bullying
-                    - Emotions, feelings, mood
-                    - Coping strategies, mindfulness
-                    - Sleep issues, eating concerns
-                    - Identity, self-discovery
-                    - Loneliness, social anxiety
-                    - Grief, loss, trauma
-                    - Anger management
-                    - Life transitions, changes
-                    - General well-being and wellness
-
-                    NOT mental health topics:
-                    - Math problems, homework help (unless related to stress about it)
-                    - General knowledge questions (history, science, geography)
-                    - Technical/IT support
-                    - Recipes, cooking
-                    - Sports scores, entertainment
-                    - Shopping, products
-                    - Travel destinations
-                    - Programming/coding help
-
-                    Respond with ONLY 'RELEVANT' or 'NOT_RELEVANT'. No other text."""
-                },
-                {
-                    "role": "user",
-                    "content": f"Is this message related to mental health or emotional well-being?\n\nMessage: {message}"
-                }
-            ]
-
-            # Check topic relevance
-            try:
-                topic_response = openai.ChatCompletion.create(
-                    model=self.model,
-                    messages=topic_check_messages,
-                    max_tokens=10,
-                    temperature=0.3
-                )
-
-                topic_result = topic_response['choices'][0]['message']['content'].strip(
-                ).upper()
-
-                # If not relevant, return a polite redirect
-                if 'NOT_RELEVANT' in topic_result or 'NOT RELEVANT' in topic_result:
-                    redirect_message = """I appreciate you reaching out! However, I'm specifically designed to provide mental health and emotional support for adolescents and parents. 
-
-Your question seems to be outside my area of expertise. I'm here to help with:
-
-**Mental Health Support:**
-- Anxiety, stress, and worry
-- Depression and mood concerns
-- Self-esteem and confidence
-- Relationship and friendship issues
-- School stress and bullying
-- Coping strategies and mindfulness
-- Emotional well-being
-
-If you have questions about your emotional well-being, mental health, or need support dealing with life's challenges, I'm here to help! Please feel free to ask me about those topics. 😊"""
-
-                    # Save bot response
-                    bot_chat = ChatMessage.objects.create(
-                        sessions=session,
-                        role='assistant',
-                        content=redirect_message
-                    )
-
-                    return api_ok(
-                        "Response generated successfully",
-                        data={
-                            'session_id': str(session.id),
-                            'chat_id': str(session.id),
-                            'message': redirect_message,
-                            'is_crisis': False,
-                            'is_off_topic': True,
-                            'message_id': str(bot_chat.id),
-                            'timestamp': bot_chat.timestamps.isoformat()
-                        }
-                    )
-
-            except Exception as e:
-                # If topic check fails, proceed with normal response (fail-safe)
-                print(f"Topic check failed: {str(e)}")
-
-            # Build conversation context for OpenAI
-            messages = [
-                {
-                    "role": "system",
-                    "content": """You are a compassionate mental health support assistant EXCLUSIVELY for adolescents and parents. 
-                    
-                    IMPORTANT: You ONLY discuss mental health and emotional well-being topics. If asked about anything else (math, science, general knowledge, entertainment, etc.), politely redirect them back to mental health topics.
-                    
-                    Your role is to:
-                    - Provide empathetic, supportive responses
-                    - Offer practical coping strategies
-                    - Normalize their feelings
-                    - Encourage seeking professional help when needed
-                    - Use age-appropriate language
-                    - Never provide medical diagnoses or replace professional therapy
-                    - Format responses using markdown for readability (use **bold**, bullet points, etc.)
-                    - ONLY answer questions related to mental health, emotions, relationships, stress, anxiety, depression, self-esteem, coping, and well-being
-                    
-                    If asked about non-mental-health topics, respond:
-                    "I'm here specifically to support your mental health and emotional well-being. For questions outside this area, I'd recommend seeking other resources. Is there anything related to your emotional health or well-being I can help you with?"
-                    
-                    If you detect a crisis (self-harm, suicide ideation), immediately provide crisis resources:
-                    - National Suicide Prevention Lifeline: 988
-                    - Crisis Text Line: Text HOME to 741741
-                    - Always encourage talking to a trusted adult
-                    """
-                }
-            ]
-
-            # Add conversation history (exclude the current message we just saved)
-            for msg in history[:-1]:
-                messages.append({
-                    "role": "user" if msg.role == 'user' else "assistant",
-                    "content": msg.content
+            # Build conversation history for Gemini
+            chat_history = []
+            for msg in history[:-1]:  # Exclude current message
+                chat_history.append({
+                    "role": "user" if msg.role == 'user' else "model",
+                    "parts": [msg.content]
                 })
 
-            # Add current message
-            messages.append({
-                "role": "user",
-                "content": message
-            })
+            print(
+                f"Debug: Built chat history with {len(chat_history)} entries")
 
-            # Call OpenAI API
+            # Create model with system instruction
             try:
-                response = openai.ChatCompletion.create(
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=500,
-                    temperature=0.7,
-                    top_p=0.9,
-                    frequency_penalty=0.3,
-                    presence_penalty=0.6
+                model = genai.GenerativeModel(
+                    model_name=self.model_name,
+                    system_instruction=self.system_instruction,
+                    safety_settings=self.safety_settings,
+                    generation_config=self.generation_config
                 )
 
-                bot_message = response['choices'][0]['message']['content'].strip(
-                )
+                # Start chat with history
+                chat = model.start_chat(history=chat_history)
 
-                # Check for crisis keywords
-                crisis_keywords = [
-                    'kill myself', 'suicide', 'self-harm', 'hurt myself',
-                    'end my life', 'want to die', 'death', 'harm'
-                ]
+                # Generate response with streaming enabled
+                if use_streaming:
+                    # Return streaming response
+                    def generate_stream():
+                        import json
+                        bot_message = ""
+                        
+                        try:
+                            response = chat.send_message(message, stream=True)
+                            
+                            for chunk in response:
+                                if chunk.text:
+                                    bot_message += chunk.text
+                                    # Send each chunk as JSON
+                                    yield f"data: {json.dumps({'chunk': chunk.text, 'done': False})}\n\n"
+                            
+                            # Check for crisis keywords
+                            crisis_keywords = [
+                                'kill myself', 'suicide', 'self-harm', 'hurt myself',
+                                'end my life', 'die', 'death', 'want to die',
+                                'better off dead', 'no reason to live'
+                            ]
+                            is_crisis = any(keyword in message.lower() for keyword in crisis_keywords)
+                            
+                            # Save bot response
+                            bot_chat = ChatMessage.objects.create(
+                                sessions=session,
+                                role='assistant',
+                                content=bot_message.strip()
+                            )
+                            
+                            # Send final message with metadata
+                            yield f"data: {json.dumps({'chunk': '', 'done': True, 'is_crisis': is_crisis, 'message_id': str(bot_chat.id), 'timestamp': bot_chat.timestamps.isoformat()})}\n\n"
+                            
+                        except Exception as e:
+                            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+                    
+                    response = StreamingHttpResponse(
+                        generate_stream(),
+                        content_type='text/event-stream'
+                    )
+                    response['Cache-Control'] = 'no-cache'
+                    response['X-Accel-Buffering'] = 'no'
+                    return response
+                else:
+                    # Non-streaming mode - collect full response
+                    response = chat.send_message(message, stream=True)
+                    
+                    # Collect full message for storage
+                    bot_message = ""
+                    for chunk in response:
+                        if chunk.text:
+                            bot_message += chunk.text
 
-                is_crisis = any(keyword in message.lower()
-                                for keyword in crisis_keywords)
+                    bot_message = bot_message.strip()
+                    print(
+                        f"Debug: Received response from Gemini: {bot_message[:100]}...")
 
-                if is_crisis:
-                    bot_message = f"""🚨 I'm concerned about what you've shared. Your safety is the top priority.
+            except Exception as e:
+                print(f"Gemini API Error: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
-**Please reach out immediately:**
-- National Suicide Prevention Lifeline: 988 (24/7)
-- Crisis Text Line: Text HOME to 741741
-- Emergency Services: 911
-
-**Talk to someone now:**
-- A parent or guardian
-- School counselor
-- Trusted adult
-
-{bot_message}
-
-You don't have to face this alone. Help is available, and people care about you. 💙"""
-
-                # Save bot response
-                bot_chat = ChatMessage.objects.create(
-                    sessions=session,
-                    role='assistant',
-                    content=bot_message
-                )
-
-                # Auto-generate title if this is the first exchange
-                if session.title == "New Chat":
-                    try:
-                        from .utils import generate_ai_session_title
-                        session.title = generate_ai_session_title(message)
-                        session.save(update_fields=["title"])
-                    except:
-                        pass  # Keep default title if generation fails
-
-                return api_ok(
-                    "Response generated successfully",
-                    data={
-                        'session_id': str(session.id),
-                        # Include both for compatibility
-                        'chat_id': str(session.id),
-                        'message': bot_message,
-                        'is_crisis': is_crisis,
-                        'message_id': str(bot_chat.id),
-                        'timestamp': bot_chat.timestamps.isoformat()
-                    }
-                )
-
-            except openai.error.RateLimitError:
-                return api_error(
-                    "Too many requests. Please try again later.",
-                    status_code=429,
-                    code="RATE_LIMIT_EXCEEDED"
-                )
-
-            except openai.error.APIError as e:
-                print(f"OpenAI API Error: {str(e)}")
                 return api_error(
                     "AI service temporarily unavailable. Please try again.",
                     status_code=503,
-                    code="SERVICE_UNAVAILABLE"
+                    code="SERVICE_UNAVAILABLE",
+                    details={'error': str(e)}
                 )
 
-            except openai.error.AuthenticationError:
-                print("OpenAI Authentication Error - Check API Key")
-                return api_error(
-                    "Service configuration error",
-                    status_code=500,
-                    code="SERVER_ERROR"
-                )
+            # Check for crisis keywords
+            crisis_keywords = [
+                'kill myself', 'suicide', 'self-harm', 'hurt myself',
+                'end my life', 'die', 'death', 'want to die',
+                'better off dead', 'no reason to live'
+            ]
 
-            except AttributeError:
-                # OpenAI not configured, fall back to error message
-                print("OpenAI not configured - missing API key")
-                return api_error(
-                    "Chatbot service not configured. Please contact administrator.",
-                    status_code=500,
-                    code="SERVER_ERROR"
-                )
+            is_crisis = any(keyword in message.lower()
+                            for keyword in crisis_keywords)
+
+            if is_crisis:
+                crisis_resources = """
+
+**IMMEDIATE HELP AVAILABLE:**
+
+**Call Right Now:**
+- **National Suicide Prevention Lifeline: 988** (24/7, Free, Confidential)
+- **Crisis Text Line: Text HOME to 741741** (24/7, Free)
+- **Emergency Services: 911** (Life-threatening emergency)
+
+**Talk to Someone:**
+- A parent or guardian
+- School counselor
+- Trusted teacher or coach
+- Doctor or therapist
+
+**Online Resources:**
+- https://988lifeline.org/
+- https://www.crisistextline.org/
+
+You don't have to face this alone. People care about you and want to help. 💙"""
+
+                bot_message = f"I'm really concerned about what you've shared. Your safety is the most important thing right now.\n{crisis_resources}\n\n{bot_message}"
+
+            # Save bot response
+            bot_chat = ChatMessage.objects.create(
+                sessions=session,
+                role='assistant',
+                content=bot_message
+            )
+            print(f"Debug: Saved bot message with ID {bot_chat.id}")
+
+            return api_ok(
+                "Response generated successfully",
+                data={
+                    'session_id': str(session.id),
+                    'chat_id': str(session.id),
+                    'message': bot_message,
+                    'is_crisis': is_crisis,
+                    'message_id': str(bot_chat.id),
+                    'timestamp': bot_chat.timestamps.isoformat()
+                }
+            )
 
         except Exception as e:
             print(f"Chatbot Error: {str(e)}")
@@ -830,15 +882,14 @@ You don't have to face this alone. Help is available, and people care about you.
             return api_error(
                 f"Failed to process message: {str(e)}",
                 status_code=500,
-                code="SERVER_ERROR"
+                code="SERVER_ERROR",
+                details={'error': str(e)}
             )
 
     def get(self, request):
         """Get chat history"""
         try:
-            # Support both field names for compatibility
-            session_id = request.query_params.get(
-                'session_id') or request.query_params.get('chat_id')
+            session_id = request.query_params.get('session_id')
 
             if not session_id:
                 # Get all user sessions
@@ -849,18 +900,26 @@ You don't have to face this alone. Help is available, and people care about you.
                 session_data = []
                 for session in sessions:
                     last_message = ChatMessage.objects.filter(
-                        sessions=session
-                    ).order_by('-timestamps').first()
+                        session=session
+                    ).order_by('-created_at').first()
+
+                    # Generate title from first user message
+                    first_message = ChatMessage.objects.filter(
+                        session=session,
+                        sender='user'
+                    ).order_by('created_at').first()
+
+                    title = first_message.message[:50] + "..." if first_message and len(
+                        first_message.message) > 50 else (first_message.message if first_message else "New Chat")
 
                     session_data.append({
                         'session_id': str(session.id),
-                        # Include both for compatibility
                         'chat_id': str(session.id),
-                        'title': session.title,
+                        'title': title,
                         'created_at': session.created_at.isoformat(),
-                        'message_count': ChatMessage.objects.filter(sessions=session).count(),
-                        'last_message': last_message.content if last_message else None,
-                        'last_message_time': last_message.timestamps.isoformat() if last_message else None
+                        'message_count': ChatMessage.objects.filter(session=session).count(),
+                        'last_message': last_message.message if last_message else None,
+                        'last_message_time': last_message.created_at.isoformat() if last_message else None
                     })
 
                 return api_ok(
@@ -882,25 +941,29 @@ You don't have to face this alone. Help is available, and people care about you.
                 )
 
             messages = ChatMessage.objects.filter(
-                sessions=session
-            ).order_by('timestamps')
+                session=session
+            ).order_by('created_at')
+
+            # Generate title from first user message
+            first_message = messages.filter(sender='user').first()
+            title = first_message.message[:50] + "..." if first_message and len(
+                first_message.message) > 50 else (first_message.message if first_message else "New Chat")
 
             message_data = [{
                 'id': str(msg.id),
-                'sender': msg.role,
-                'role': msg.role,
-                'message': msg.content,
-                'content': msg.content,
-                'created_at': msg.timestamps.isoformat()
+                'sender': msg.sender,
+                'role': 'user' if msg.sender == 'user' else 'assistant',
+                'message': msg.message,
+                'content': msg.message,
+                'created_at': msg.created_at.isoformat()
             } for msg in messages]
 
             return api_ok(
                 "Chat history retrieved successfully",
                 data={
                     'session_id': str(session.id),
-                    # Include both for compatibility
                     'chat_id': str(session.id),
-                    'title': session.title,
+                    'title': title,
                     'messages': message_data,
                     'created_at': session.created_at.isoformat()
                 }
@@ -908,8 +971,6 @@ You don't have to face this alone. Help is available, and people care about you.
 
         except Exception as e:
             print(f"Error retrieving chat history: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return api_error(
                 "Failed to retrieve chat history",
                 status_code=500,
@@ -919,7 +980,6 @@ You don't have to face this alone. Help is available, and people care about you.
     def delete(self, request):
         """Delete chat session"""
         try:
-            # Support both field names
             session_id = request.data.get(
                 'session_id') or request.data.get('chat_id')
 
@@ -935,12 +995,11 @@ You don't have to face this alone. Help is available, and people care about you.
                     id=session_id,
                     user=request.user
                 )
-                deleted_id = str(session.id)
                 session.delete()
 
                 return api_ok(
                     "Chat session deleted successfully",
-                    data={"deleted_chat_id": deleted_id}
+                    data={'deleted_chat_id': session_id}
                 )
 
             except ChatSession.DoesNotExist:
@@ -951,7 +1010,6 @@ You don't have to face this alone. Help is available, and people care about you.
                 )
 
         except Exception as e:
-            print(f"Error deleting session: {str(e)}")
             return api_error(
                 "Failed to delete chat session",
                 status_code=500,

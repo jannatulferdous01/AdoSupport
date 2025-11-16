@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import (
 )
 from .views import (
     RegisterUserView, LoginUserView, AdolescentView, ParentView,
-    UserProfileView, ProfileAvatarView, ChangePasswordView, Chatbot, ChatSessionListView,
+    UserProfileView, ProfileAvatarView, ChangePasswordView, ChatbotView, ChatSessionListView,
     ChatSessionDeleteView, ChatSessionMessageView, PostDetailView,
     PostReactionView, PostListCreateView, CommentCreateView,
     CommentDeleteView, CommentLikeView, CommentReplyView,
@@ -45,7 +45,7 @@ urlpatterns = [
     path("parent/", ParentView.as_view(), name='parent'),
 
     # ========================== Chatbot ==========================
-    path("chatbot/", Chatbot.as_view(), name="chatbot"),
+    path("chatbot/", ChatbotView.as_view(), name="chatbot"),
     path("chat/sessions/", ChatSessionListView.as_view(), name="chat-session"),
     path("chat/sessions/<int:chat_id>/messages/",
          ChatSessionMessageView.as_view(), name="chat-message"),

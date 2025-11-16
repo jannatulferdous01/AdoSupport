@@ -3,8 +3,6 @@ from django.conf import settings
 from rest_framework import status, permissions
 from rest_framework.response import Response
 
-openai.api_key = settings.OPENAI_API_KEY
-
 
 def success_response(message, data=None, status_code=200):
     return {
@@ -52,26 +50,33 @@ def api_error(message, code="INVALID_REQUEST", details=None, status_code=status.
 
 
 def generate_ai_session_title(first_message) -> str:
+    """Generate a chat session title from the first message"""
     if not first_message:
         return "New Chat"
 
-    prompt = f"Generate a short, meaningful title (max 8 words) for this chat based on the user's message: {first_message}"
-
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that creates concise, meaningful titles for chat conversations. Keep titles under 8 words and make them descriptive of the main topic."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=20,
-            temperature=0.5,
-        )
-        title = response.choices[0].message.content.strip()
-        # Remove quotes if AI added them
-        title = title.strip('"').strip("'")
-        return title[:60]  # Limit to 60 characters
+        # Try using OpenAI if configured
+        if hasattr(settings, 'OPENAI_API_KEY') and settings.OPENAI_API_KEY:
+            openai.api_key = settings.OPENAI_API_KEY
+            
+            prompt = f"Generate a short, meaningful title (max 8 words) for this chat based on the user's message: {first_message}"
+            
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that creates concise, meaningful titles for chat conversations. Keep titles under 8 words and make them descriptive of the main topic."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=20,
+                temperature=0.5,
+            )
+            title = response.choices[0].message.content.strip()
+            # Remove quotes if AI added them
+            title = title.strip('"').strip("'")
+            return title[:60]  # Limit to 60 characters
+            
     except Exception as e:
-        print(f"OpenAI title generation failed: {e}")
-        # Fallback to simple title generation
-        return first_message[:50] + "..." if len(first_message) > 50 else first_message
+        print(f"AI title generation failed: {e}")
+    
+    # Fallback to simple title generation from first message
+    return first_message[:50] + "..." if len(first_message) > 50 else first_message

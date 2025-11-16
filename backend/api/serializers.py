@@ -423,11 +423,11 @@ class CartProductSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'price', 'discount_price', 'image', 'in_stock']
 
     def get_image(self, obj):
-        """Get first product image"""
+        """Get first product image URL"""
         request = self.context.get('request')
         first_image = obj.images.first()
         if first_image:
-            return ProductImageSerializer(first_image, context={'request': request}).data.get('image')
+            return ProductImageSerializer(first_image, context={'request': request}).data.get('image_url')
         return None
 
 

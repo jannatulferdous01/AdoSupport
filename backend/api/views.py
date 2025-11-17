@@ -663,16 +663,9 @@ Response:"""
                 )
 
                 # Create redirect response
-                redirect_message = """I appreciate you reaching out! However, I'm specifically designed to provide mental health and emotional support for adolescents and parents. 
+                redirect_message = """I'm sorry, but I can't answer that question. I'm specifically designed to provide mental health and emotional support only.
 
-Your question seems to be outside my area of expertise. I'm here to help with:
-- Feelings and emotions (anxiety, stress, sadness)
-- Relationships and social challenges
-- Mental wellbeing and self-care
-- Coping strategies and resilience
-- Adolescent development and challenges
-
-Would you like to talk about how you're feeling or any emotional challenges you're facing?"""
+Please don't ask me questions outside of mental health topics. Instead, tell me something about your mental health or how you're feeling emotionally. I'm here to help with anxiety, stress, depression, relationships, and other emotional wellbeing topics."""
 
                 # Save bot response
                 bot_chat = ChatMessage.objects.create(
@@ -778,8 +771,8 @@ Would you like to talk about how you're feeling or any emotional challenges you'
                             content=bot_message.strip()
                         )
 
-                        # Send final message with metadata
-                        yield f"data: {json.dumps({'chunk': '', 'done': True, 'is_crisis': is_crisis, 'message_id': str(bot_chat.id), 'timestamp': bot_chat.timestamps.isoformat()})}\n\n"
+                        # Send final message with metadata including session_id
+                        yield f"data: {json.dumps({'chunk': '', 'done': True, 'session_id': str(session.id), 'is_crisis': is_crisis, 'message_id': str(bot_chat.id), 'timestamp': bot_chat.timestamps.isoformat()})}\n\n"
 
                     except Exception as e:
                         yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"

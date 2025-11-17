@@ -202,11 +202,7 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 
-# OpenAI Configuration (optional - for title generation)
-OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
-OPENAI_MODEL = config('OPENAI_MODEL', default='gpt-3.5-turbo')
-
-# Google Gemini Configuration (primary chatbot)
+# Google Gemini Configuration
 GOOGLE_API_KEY = config('GOOGLE_API_KEY', default='')
 GEMINI_MODEL = config('GEMINI_MODEL', default='gemini-2.0-flash')
 

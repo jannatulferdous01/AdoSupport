@@ -36,7 +36,6 @@ from django.utils.html import escape
 import json
 from django.db.models import Count, OuterRef, Subquery, Q, F, Value, TextField, CharField
 from django.db import models
-import openai
 from django.conf import settings
 from .cloudinary_utils import (
     upload_image_to_cloudinary,

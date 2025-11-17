@@ -1,5 +1,5 @@
-import openai
 from django.conf import settings
+import google.generativeai as genai
 from rest_framework import status, permissions
 from rest_framework.response import Response
 
@@ -55,22 +55,15 @@ def generate_ai_session_title(first_message) -> str:
         return "New Chat"
 
     try:
-        # Try using OpenAI if configured
-        if hasattr(settings, 'OPENAI_API_KEY') and settings.OPENAI_API_KEY:
-            openai.api_key = settings.OPENAI_API_KEY
+        # Try using Gemini if configured
+        if hasattr(settings, 'GOOGLE_API_KEY') and settings.GOOGLE_API_KEY:
+            genai.configure(api_key=settings.GOOGLE_API_KEY)
+            model = genai.GenerativeModel('gemini-2.0-flash')
             
-            prompt = f"Generate a short, meaningful title (max 8 words) for this chat based on the user's message: {first_message}"
+            prompt = f"Generate a short, meaningful title (max 8 words) for this mental health chat based on the user's message: {first_message}. Reply with only the title, no quotes."
             
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that creates concise, meaningful titles for chat conversations. Keep titles under 8 words and make them descriptive of the main topic."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=20,
-                temperature=0.5,
-            )
-            title = response.choices[0].message.content.strip()
+            response = model.generate_content(prompt)
+            title = response.text.strip()
             # Remove quotes if AI added them
             title = title.strip('"').strip("'")
             return title[:60]  # Limit to 60 characters

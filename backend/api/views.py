@@ -623,7 +623,8 @@ Response:"""
                     code="SERVER_ERROR"
                 )
 
-            message = request.data.get('message', '').strip()
+            # Accept both 'query' and 'message' for compatibility
+            message = request.data.get('query', '').strip() or request.data.get('message', '').strip()
             session_id = request.data.get('session_id', None)
 
             print(f"Debug: Received message: {message}")
@@ -632,7 +633,7 @@ Response:"""
 
             if not message:
                 return api_error(
-                    "Message is required",
+                    "Query is required",
                     status_code=400,
                     code="INVALID_REQUEST"
                 )

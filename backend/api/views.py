@@ -625,12 +625,10 @@ Response:"""
 
             message = request.data.get('message', '').strip()
             session_id = request.data.get('session_id', None)
-            use_streaming = request.data.get('stream', False)
 
             print(f"Debug: Received message: {message}")
             print(f"Debug: Session ID: {session_id}")
             print(f"Debug: Current user: {request.user}")
-            print(f"Debug: Streaming mode: {use_streaming}")
 
             if not message:
                 return api_error(
@@ -750,63 +748,49 @@ Would you like to talk about how you're feeling or any emotional challenges you'
                 # Start chat with history
                 chat = model.start_chat(history=chat_history)
 
-                # Generate response with streaming enabled
-                if use_streaming:
-                    # Return streaming response
-                    def generate_stream():
-                        import json
-                        bot_message = ""
-                        
-                        try:
-                            response = chat.send_message(message, stream=True)
-                            
-                            for chunk in response:
-                                if chunk.text:
-                                    bot_message += chunk.text
-                                    # Send each chunk as JSON
-                                    yield f"data: {json.dumps({'chunk': chunk.text, 'done': False})}\n\n"
-                            
-                            # Check for crisis keywords
-                            crisis_keywords = [
-                                'kill myself', 'suicide', 'self-harm', 'hurt myself',
-                                'end my life', 'die', 'death', 'want to die',
-                                'better off dead', 'no reason to live'
-                            ]
-                            is_crisis = any(keyword in message.lower() for keyword in crisis_keywords)
-                            
-                            # Save bot response
-                            bot_chat = ChatMessage.objects.create(
-                                sessions=session,
-                                role='assistant',
-                                content=bot_message.strip()
-                            )
-                            
-                            # Send final message with metadata
-                            yield f"data: {json.dumps({'chunk': '', 'done': True, 'is_crisis': is_crisis, 'message_id': str(bot_chat.id), 'timestamp': bot_chat.timestamps.isoformat()})}\n\n"
-                            
-                        except Exception as e:
-                            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
-                    
-                    response = StreamingHttpResponse(
-                        generate_stream(),
-                        content_type='text/event-stream'
-                    )
-                    response['Cache-Control'] = 'no-cache'
-                    response['X-Accel-Buffering'] = 'no'
-                    return response
-                else:
-                    # Non-streaming mode - collect full response
-                    response = chat.send_message(message, stream=True)
-                    
-                    # Collect full message for storage
+                # Return streaming response
+                def generate_stream():
+                    import json
                     bot_message = ""
-                    for chunk in response:
-                        if chunk.text:
-                            bot_message += chunk.text
 
-                    bot_message = bot_message.strip()
-                    print(
-                        f"Debug: Received response from Gemini: {bot_message[:100]}...")
+                    try:
+                        response = chat.send_message(message, stream=True)
+
+                        for chunk in response:
+                            if chunk.text:
+                                bot_message += chunk.text
+                                # Send each chunk as JSON
+                                yield f"data: {json.dumps({'chunk': chunk.text, 'done': False})}\n\n"
+
+                        # Check for crisis keywords
+                        crisis_keywords = [
+                            'kill myself', 'suicide', 'self-harm', 'hurt myself',
+                            'end my life', 'die', 'death', 'want to die',
+                            'better off dead', 'no reason to live'
+                        ]
+                        is_crisis = any(keyword in message.lower()
+                                        for keyword in crisis_keywords)
+
+                        # Save bot response
+                        bot_chat = ChatMessage.objects.create(
+                            sessions=session,
+                            role='assistant',
+                            content=bot_message.strip()
+                        )
+
+                        # Send final message with metadata
+                        yield f"data: {json.dumps({'chunk': '', 'done': True, 'is_crisis': is_crisis, 'message_id': str(bot_chat.id), 'timestamp': bot_chat.timestamps.isoformat()})}\n\n"
+
+                    except Exception as e:
+                        yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+
+                response = StreamingHttpResponse(
+                    generate_stream(),
+                    content_type='text/event-stream'
+                )
+                response['Cache-Control'] = 'no-cache'
+                response['X-Accel-Buffering'] = 'no'
+                return response
 
             except Exception as e:
                 print(f"Gemini API Error: {str(e)}")
@@ -819,60 +803,6 @@ Would you like to talk about how you're feeling or any emotional challenges you'
                     code="SERVICE_UNAVAILABLE",
                     details={'error': str(e)}
                 )
-
-            # Check for crisis keywords
-            crisis_keywords = [
-                'kill myself', 'suicide', 'self-harm', 'hurt myself',
-                'end my life', 'die', 'death', 'want to die',
-                'better off dead', 'no reason to live'
-            ]
-
-            is_crisis = any(keyword in message.lower()
-                            for keyword in crisis_keywords)
-
-            if is_crisis:
-                crisis_resources = """
-
-**IMMEDIATE HELP AVAILABLE:**
-
-**Call Right Now:**
-- **National Suicide Prevention Lifeline: 988** (24/7, Free, Confidential)
-- **Crisis Text Line: Text HOME to 741741** (24/7, Free)
-- **Emergency Services: 911** (Life-threatening emergency)
-
-**Talk to Someone:**
-- A parent or guardian
-- School counselor
-- Trusted teacher or coach
-- Doctor or therapist
-
-**Online Resources:**
-- https://988lifeline.org/
-- https://www.crisistextline.org/
-
-You don't have to face this alone. People care about you and want to help. 💙"""
-
-                bot_message = f"I'm really concerned about what you've shared. Your safety is the most important thing right now.\n{crisis_resources}\n\n{bot_message}"
-
-            # Save bot response
-            bot_chat = ChatMessage.objects.create(
-                sessions=session,
-                role='assistant',
-                content=bot_message
-            )
-            print(f"Debug: Saved bot message with ID {bot_chat.id}")
-
-            return api_ok(
-                "Response generated successfully",
-                data={
-                    'session_id': str(session.id),
-                    'chat_id': str(session.id),
-                    'message': bot_message,
-                    'is_crisis': is_crisis,
-                    'message_id': str(bot_chat.id),
-                    'timestamp': bot_chat.timestamps.isoformat()
-                }
-            )
 
         except Exception as e:
             print(f"Chatbot Error: {str(e)}")
